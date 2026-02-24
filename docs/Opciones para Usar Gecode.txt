@@ -1,0 +1,695 @@
+Opciones para Usar Gecode desde Pascal
+Opción 1: FFI (Foreign Function Interface) - RECOMENDADA ⭐
+Crear un wrapper en C que exponga funciones simples que Pascal pueda llamar.
+Paso 1: Crear wrapper C++ para Gecode
+cpp// gecode_wrapper.cpp
+#include <gecode/int.hh>
+#include <gecode/search.hh>
+#include <string>
+#include <vector>
+#include <map>
+#include <cstring>
+
+using namespace Gecode;
+
+// Estructura para pasar información entre Pascal y C++
+extern "C" {
+    
+    // Handle opaco para el modelo
+    typedef void* GecodeModelHandle;
+    typedef void* GecodeSolverHandle;
+    
+    // Estructura para definir una variable
+    struct VariableDef {
+        char name[64];
+        int minDomain;
+        int maxDomain;
+    };
+    
+    // Estructura para una solución
+    struct Solution {
+        int numVars;
+        char varNames[100][64];
+        int values[100];
+    };
+    
+    // Tipos de restricciones
+    enum ConstraintType {
+        CT_EQUALS,
+        CT_NOT_EQUALS,
+        CT_LESS,
+        CT_GREATER,
+        CT_LESS_EQ,
+        CT_GREATER_EQ,
+        CT_IN_INTERVAL,
+        CT_IN_SET,
+        CT_ADD,
+        CT_SUBTRACT,
+        CT_MULTIPLY
+    };
+    
+    // Estructura para expresión
+    struct Expression {
+        int type;  // 0=variable, 1=constante, 2=operación
+        char varName[64];
+        int constantValue;
+        int operation;  // CT_ADD, CT_SUBTRACT, etc.
+        int leftExprIdx;
+        int rightExprIdx;
+    };
+    
+    // Estructura para restricción
+    struct Constraint {
+        ConstraintType type;
+        int leftExprIdx;
+        int rightExprIdx;
+        
+        // Para IN_INTERVAL
+        int intervalStart;
+        int intervalEnd;
+        bool startOpen;
+        bool endOpen;
+        
+        // Para IN_SET
+        int setValues[100];
+        int setSize;
+    };
+    
+    // ====================
+    // API PRINCIPAL
+    // ====================
+    
+    // Crear un nuevo modelo
+    GecodeModelHandle gecode_create_model(
+        VariableDef* variables, 
+        int numVars
+    );
+    
+    // Agregar restricción al modelo
+    bool gecode_add_constraint(
+        GecodeModelHandle model,
+        Constraint* constraint,
+        Expression* expressions,
+        int numExpressions
+    );
+    
+    // Crear solver
+    GecodeSolverHandle gecode_create_solver(GecodeModelHandle model);
+    
+    // Obtener siguiente solución
+    bool gecode_next_solution(
+        GecodeSolverHandle solver,
+        Solution* solution
+    );
+    
+    // Liberar memoria
+    void gecode_free_model(GecodeModelHandle model);
+    void gecode_free_solver(GecodeSolverHandle solver);
+    
+} // extern "C"
+
+// ====================
+// IMPLEMENTACIÓN
+// ====================
+
+class SimpleModel : public Space {
+protected:
+    std::map<std::string, IntVar> variables;
+    std::vector<Expression> expressions;
+    
+public:
+    SimpleModel(VariableDef* varDefs, int numVars, 
+                Expression* exprs, int numExprs) {
+        
+        // Crear variables
+        for (int i = 0; i < numVars; i++) {
+            std::string name = varDefs[i].name;
+            variables[name] = IntVar(*this, 
+                                    varDefs[i].minDomain, 
+                                    varDefs[i].maxDomain);
+        }
+        
+        // Guardar expresiones
+        for (int i = 0; i < numExprs; i++) {
+            expressions.push_back(exprs[i]);
+        }
+        
+        // Branching por defecto
+        IntVarArgs allVars;
+        for (const auto& [name, var] : variables) {
+            allVars << var;
+        }
+        branch(*this, allVars, INT_VAR_SIZE_MIN(), INT_VAL_MIN());
+    }
+    
+    SimpleModel(SimpleModel& s) : Space(s) {
+        for (const auto& [name, var] : s.variables) {
+            variables[name] = IntVar();
+            variables[name].update(*this, var);
+        }
+        expressions = s.expressions;
+    }
+    
+    virtual Space* copy(void) {
+        return new SimpleModel(*this);
+    }
+    
+    // Evaluar expresión recursivamente
+    LinIntExpr evaluateExpression(int exprIdx) {
+        const Expression& expr = expressions[exprIdx];
+        
+        if (expr.type == 0) {
+            // Variable
+            return LinIntExpr(variables[expr.varName]);
+        }
+        else if (expr.type == 1) {
+            // Constante
+            return LinIntExpr(expr.constantValue);
+        }
+        else if (expr.type == 2) {
+            // Operación
+            LinIntExpr left = evaluateExpression(expr.leftExprIdx);
+            LinIntExpr right = evaluateExpression(expr.rightExprIdx);
+            
+            switch (expr.operation) {
+                case CT_ADD:
+                    return left + right;
+                case CT_SUBTRACT:
+                    return left - right;
+                case CT_MULTIPLY:
+                    // Simplificado: asumimos que uno es constante
+                    return left * right;
+                default:
+                    throw std::runtime_error("Operación no soportada");
+            }
+        }
+        
+        throw std::runtime_error("Tipo de expresión desconocido");
+    }
+    
+    void addConstraint(const Constraint& constraint) {
+        LinIntExpr left = evaluateExpression(constraint.leftExprIdx);
+        
+        switch (constraint.type) {
+            case CT_EQUALS: {
+                LinIntExpr right = evaluateExpression(constraint.rightExprIdx);
+                rel(*this, left == right);
+                break;
+            }
+            
+            case CT_NOT_EQUALS: {
+                LinIntExpr right = evaluateExpression(constraint.rightExprIdx);
+                rel(*this, left != right);
+                break;
+            }
+            
+            case CT_LESS: {
+                LinIntExpr right = evaluateExpression(constraint.rightExprIdx);
+                rel(*this, left < right);
+                break;
+            }
+            
+            case CT_GREATER: {
+                LinIntExpr right = evaluateExpression(constraint.rightExprIdx);
+                rel(*this, left > right);
+                break;
+            }
+            
+            case CT_LESS_EQ: {
+                LinIntExpr right = evaluateExpression(constraint.rightExprIdx);
+                rel(*this, left <= right);
+                break;
+            }
+            
+            case CT_GREATER_EQ: {
+                LinIntExpr right = evaluateExpression(constraint.rightExprIdx);
+                rel(*this, left >= right);
+                break;
+            }
+            
+            case CT_IN_INTERVAL: {
+                // Extraer variable (debe ser expresión simple)
+                const Expression& varExpr = expressions[constraint.leftExprIdx];
+                if (varExpr.type != 0) {
+                    throw std::runtime_error("IN_INTERVAL requiere variable simple");
+                }
+                
+                IntVar var = variables[varExpr.varName];
+                int start = constraint.intervalStart;
+                int end = constraint.intervalEnd;
+                
+                if (constraint.startOpen) start++;
+                if (constraint.endOpen) end--;
+                
+                dom(*this, var, start, end);
+                break;
+            }
+            
+            case CT_IN_SET: {
+                // Extraer variable
+                const Expression& varExpr = expressions[constraint.leftExprIdx];
+                if (varExpr.type != 0) {
+                    throw std::runtime_error("IN_SET requiere variable simple");
+                }
+                
+                IntVar var = variables[varExpr.varName];
+                IntSet allowedValues(constraint.setValues, constraint.setSize);
+                dom(*this, var, allowedValues);
+                break;
+            }
+            
+            default:
+                throw std::runtime_error("Tipo de restricción no soportado");
+        }
+    }
+    
+    void getSolution(Solution* solution) {
+        solution->numVars = variables.size();
+        int idx = 0;
+        for (const auto& [name, var] : variables) {
+            strcpy(solution->varNames[idx], name.c_str());
+            solution->values[idx] = var.val();
+            idx++;
+        }
+    }
+};
+
+// Implementación de funciones C
+
+struct ModelWrapper {
+    SimpleModel* model;
+    std::vector<Expression> expressions;
+    VariableDef* varDefs;
+    int numVars;
+};
+
+struct SolverWrapper {
+    DFS<SimpleModel>* engine;
+};
+
+GecodeModelHandle gecode_create_model(VariableDef* variables, int numVars) {
+    try {
+        ModelWrapper* wrapper = new ModelWrapper();
+        wrapper->varDefs = new VariableDef[numVars];
+        memcpy(wrapper->varDefs, variables, numVars * sizeof(VariableDef));
+        wrapper->numVars = numVars;
+        wrapper->model = nullptr;  // Se creará después de agregar restricciones
+        
+        return wrapper;
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+bool gecode_add_constraint(
+    GecodeModelHandle modelHandle,
+    Constraint* constraint,
+    Expression* expressions,
+    int numExpressions) {
+    
+    try {
+        ModelWrapper* wrapper = static_cast<ModelWrapper*>(modelHandle);
+        
+        // Guardar expresiones
+        for (int i = 0; i < numExpressions; i++) {
+            wrapper->expressions.push_back(expressions[i]);
+        }
+        
+        // Si el modelo no existe, crearlo
+        if (!wrapper->model) {
+            wrapper->model = new SimpleModel(
+                wrapper->varDefs, 
+                wrapper->numVars,
+                wrapper->expressions.data(),
+                wrapper->expressions.size()
+            );
+        }
+        
+        // Agregar restricción
+        wrapper->model->addConstraint(*constraint);
+        
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+GecodeSolverHandle gecode_create_solver(GecodeModelHandle modelHandle) {
+    try {
+        ModelWrapper* wrapper = static_cast<ModelWrapper*>(modelHandle);
+        
+        SolverWrapper* solver = new SolverWrapper();
+        solver->engine = new DFS<SimpleModel>(wrapper->model);
+        
+        return solver;
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+bool gecode_next_solution(GecodeSolverHandle solverHandle, Solution* solution) {
+    try {
+        SolverWrapper* wrapper = static_cast<SolverWrapper*>(solverHandle);
+        
+        SimpleModel* sol = wrapper->engine->next();
+        if (!sol) {
+            return false;
+        }
+        
+        sol->getSolution(solution);
+        delete sol;
+        
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+void gecode_free_model(GecodeModelHandle modelHandle) {
+    if (modelHandle) {
+        ModelWrapper* wrapper = static_cast<ModelWrapper*>(modelHandle);
+        delete wrapper->model;
+        delete[] wrapper->varDefs;
+        delete wrapper;
+    }
+}
+
+void gecode_free_solver(GecodeSolverHandle solverHandle) {
+    if (solverHandle) {
+        SolverWrapper* wrapper = static_cast<SolverWrapper*>(solverHandle);
+        delete wrapper->engine;
+        delete wrapper;
+    }
+}
+Paso 2: Compilar como biblioteca compartida
+bash# Compilar wrapper
+g++ -shared -fPIC -o libgecode_wrapper.so gecode_wrapper.cpp \
+    -lgecodeint -lgecodesearch -lgecodekernel -lgecodesupport \
+    -std=c++17
+
+# En Windows:
+g++ -shared -o gecode_wrapper.dll gecode_wrapper.cpp \
+    -lgecodeint -lgecodesearch -lgecodekernel -lgecodesupport \
+    -std=c++17
+Paso 3: Usar desde Pascal
+pascalunit GeocodeInterface;
+
+{$mode objfpc}{$H+}
+
+interface
+
+uses
+  SysUtils, DynLibs;
+
+type
+  GecodeModelHandle = Pointer;
+  GecodeSolverHandle = Pointer;
+  
+  TConstraintType = (
+    ctEquals,
+    ctNotEquals,
+    ctLess,
+    ctGreater,
+    ctLessEq,
+    ctGreaterEq,
+    ctInInterval,
+    ctInSet,
+    ctAdd,
+    ctSubtract,
+    ctMultiply
+  );
+  
+  TVariableDef = record
+    Name: array[0..63] of Char;
+    MinDomain: Integer;
+    MaxDomain: Integer;
+  end;
+  PVariableDef = ^TVariableDef;
+  
+  TSolution = record
+    NumVars: Integer;
+    VarNames: array[0..99, 0..63] of Char;
+    Values: array[0..99] of Integer;
+  end;
+  PSolution = ^TSolution;
+  
+  TExpression = record
+    ExprType: Integer;  // 0=variable, 1=constante, 2=operación
+    VarName: array[0..63] of Char;
+    ConstantValue: Integer;
+    Operation: Integer;
+    LeftExprIdx: Integer;
+    RightExprIdx: Integer;
+  end;
+  PExpression = ^TExpression;
+  
+  TConstraint = record
+    ConstraintType: TConstraintType;
+    LeftExprIdx: Integer;
+    RightExprIdx: Integer;
+    
+    // Para IN_INTERVAL
+    IntervalStart: Integer;
+    IntervalEnd: Integer;
+    StartOpen: Boolean;
+    EndOpen: Boolean;
+    
+    // Para IN_SET
+    SetValues: array[0..99] of Integer;
+    SetSize: Integer;
+  end;
+  PConstraint = ^TConstraint;
+  
+  // Funciones importadas
+  TGecodeCreateModel = function(Variables: PVariableDef; NumVars: Integer): GecodeModelHandle; cdecl;
+  TGecodeAddConstraint = function(Model: GecodeModelHandle; Constraint: PConstraint; 
+                                   Expressions: PExpression; NumExpressions: Integer): Boolean; cdecl;
+  TGecodeCreateSolver = function(Model: GecodeModelHandle): GecodeSolverHandle; cdecl;
+  TGecodeNextSolution = function(Solver: GecodeSolverHandle; Solution: PSolution): Boolean; cdecl;
+  TGecodeFreeModel = procedure(Model: GecodeModelHandle); cdecl;
+  TGecodeFreeSolver = procedure(Solver: GecodeSolverHandle); cdecl;
+
+var
+  LibHandle: TLibHandle;
+  
+  gecode_create_model: TGecodeCreateModel;
+  gecode_add_constraint: TGecodeAddConstraint;
+  gecode_create_solver: TGecodeCreateSolver;
+  gecode_next_solution: TGecodeNextSolution;
+  gecode_free_model: TGecodeFreeModel;
+  gecode_free_solver: TGecodeFreeSolver;
+
+function LoadGeocodeLibrary(const LibPath: string = ''): Boolean;
+procedure UnloadGeocodeLibrary;
+
+// Funciones helper
+function CreateVariableDef(const Name: string; MinDomain, MaxDomain: Integer): TVariableDef;
+function CreateExpression(const VarName: string): TExpression; overload;
+function CreateExpression(ConstValue: Integer): TExpression; overload;
+function CreateExpression(Op: TConstraintType; LeftIdx, RightIdx: Integer): TExpression; overload;
+
+implementation
+
+function LoadGeocodeLibrary(const LibPath: string = ''): Boolean;
+var
+  Path: string;
+begin
+  Result := False;
+  
+  if LibPath = '' then
+  begin
+    {$IFDEF UNIX}
+    Path := './libgecode_wrapper.so';
+    {$ELSE}
+    Path := 'gecode_wrapper.dll';
+    {$ENDIF}
+  end
+  else
+    Path := LibPath;
+  
+  LibHandle := LoadLibrary(Path);
+  if LibHandle = NilHandle then
+  begin
+    WriteLn('Error cargando biblioteca: ', Path);
+    Exit;
+  end;
+  
+  gecode_create_model := TGecodeCreateModel(GetProcAddress(LibHandle, 'gecode_create_model'));
+  gecode_add_constraint := TGecodeAddConstraint(GetProcAddress(LibHandle, 'gecode_add_constraint'));
+  gecode_create_solver := TGecodeCreateSolver(GetProcAddress(LibHandle, 'gecode_create_solver'));
+  gecode_next_solution := TGecodeNextSolution(GetProcAddress(LibHandle, 'gecode_next_solution'));
+  gecode_free_model := TGecodeFreeModel(GetProcAddress(LibHandle, 'gecode_free_model'));
+  gecode_free_solver := TGecodeFreeSolver(GetProcAddress(LibHandle, 'gecode_free_solver'));
+  
+  Result := Assigned(gecode_create_model) and 
+            Assigned(gecode_add_constraint) and
+            Assigned(gecode_create_solver) and
+            Assigned(gecode_next_solution);
+end;
+
+procedure UnloadGeocodeLibrary;
+begin
+  if LibHandle <> NilHandle then
+  begin
+    FreeLibrary(LibHandle);
+    LibHandle := NilHandle;
+  end;
+end;
+
+function CreateVariableDef(const Name: string; MinDomain, MaxDomain: Integer): TVariableDef;
+begin
+  FillChar(Result, SizeOf(Result), 0);
+  StrPCopy(Result.Name, Copy(Name, 1, 63));
+  Result.MinDomain := MinDomain;
+  Result.MaxDomain := MaxDomain;
+end;
+
+function CreateExpression(const VarName: string): TExpression;
+begin
+  FillChar(Result, SizeOf(Result), 0);
+  Result.ExprType := 0;  // Variable
+  StrPCopy(Result.VarName, Copy(VarName, 1, 63));
+end;
+
+function CreateExpression(ConstValue: Integer): TExpression;
+begin
+  FillChar(Result, SizeOf(Result), 0);
+  Result.ExprType := 1;  // Constante
+  Result.ConstantValue := ConstValue;
+end;
+
+function CreateExpression(Op: TConstraintType; LeftIdx, RightIdx: Integer): TExpression;
+begin
+  FillChar(Result, SizeOf(Result), 0);
+  Result.ExprType := 2;  // Operación
+  Result.Operation := Ord(Op);
+  Result.LeftExprIdx := LeftIdx;
+  Result.RightExprIdx := RightIdx;
+end;
+
+end.
+Paso 4: Programa de Prueba en Pascal
+pascalprogram TestGeocodeWrapper;
+
+{$mode objfpc}{$H+}
+
+uses
+  SysUtils, GeocodeInterface;
+
+var
+  Model: GecodeModelHandle;
+  Solver: GecodeSolverHandle;
+  Variables: array[0..1] of TVariableDef;
+  Expressions: array[0..2] of TExpression;
+  Constraint: TConstraint;
+  Solution: TSolution;
+  i, Count: Integer;
+
+begin
+  // Cargar biblioteca
+  if not LoadGeocodeLibrary then
+  begin
+    WriteLn('Error: No se pudo cargar la biblioteca Gecode');
+    Exit;
+  end;
+  
+  try
+    WriteLn('=== PRUEBA GECODE DESDE PASCAL ===');
+    WriteLn;
+    
+    // Definir variables: x ∈ [1, 5], y ∈ [0, 10]
+    Variables[0] := CreateVariableDef('x', 1, 5);
+    Variables[1] := CreateVariableDef('y', 0, 10);
+    
+    // Crear modelo
+    Model := gecode_create_model(@Variables[0], 2);
+    if Model = nil then
+    begin
+      WriteLn('Error creando modelo');
+      Exit;
+    end;
+    
+    // Crear expresiones: x + y = 10
+    Expressions[0] := CreateExpression('x');       // expr[0] = x
+    Expressions[1] := CreateExpression('y');       // expr[1] = y
+    Expressions[2] := CreateExpression(ctAdd, 0, 1);  // expr[2] = x + y
+    
+    // Crear restricción: expr[2] = 10
+    FillChar(Constraint, SizeOf(Constraint), 0);
+    Constraint.ConstraintType := ctEquals;
+    Constraint.LeftExprIdx := 2;  // x + y
+    Constraint.RightExprIdx := -1;  // Usaremos una expresión constante
+    
+    // Agregar expresión para constante 10
+    SetLength(Expressions, 4);
+    Expressions[3] := CreateExpression(10);
+    Constraint.RightExprIdx := 3;
+    
+    // Agregar restricción al modelo
+    if not gecode_add_constraint(Model, @Constraint, @Expressions[0], 4) then
+    begin
+      WriteLn('Error agregando restricción');
+      gecode_free_model(Model);
+      Exit;
+    end;
+    
+    // Crear solver
+    Solver := gecode_create_solver(Model);
+    if Solver = nil then
+    begin
+      WriteLn('Error creando solver');
+      gecode_free_model(Model);
+      Exit;
+    end;
+    
+    // Buscar soluciones
+    WriteLn('Buscando soluciones para: x + y = 10, x ∈ [1, 5]');
+    WriteLn;
+    
+    Count := 0;
+    while gecode_next_solution(Solver, @Solution) do
+    begin
+      Inc(Count);
+      Write(Format('%d. ', [Count]));
+      
+      for i := 0 to Solution.NumVars - 1 do
+      begin
+        Write(Format('%s=%d ', [PChar(@Solution.VarNames[i]), Solution.Values[i]]));
+      end;
+      
+      WriteLn;
+    end;
+    
+    WriteLn;
+    WriteLn(Format('Total: %d soluciones encontradas', [Count]));
+    
+    // Liberar recursos
+    gecode_free_solver(Solver);
+    gecode_free_model(Model);
+    
+  finally
+    UnloadGeocodeLibrary;
+  end;
+  
+  WriteLn;
+  WriteLn('Presione Enter...');
+  ReadLn;
+end.
+```
+
+### **Salida Esperada**
+```
+=== PRUEBA GECODE DESDE PASCAL ===
+
+Buscando soluciones para: x + y = 10, x ∈ [1, 5]
+
+1. x=1 y=9 
+2. x=2 y=8 
+3. x=3 y=7 
+4. x=4 y=6 
+5. x=5 y=5 
+
+Total: 5 soluciones encontradas
+
+Presione Enter...
+

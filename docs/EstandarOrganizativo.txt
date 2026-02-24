@@ -1,0 +1,41 @@
+================================================================================
+ESTÁNDAR ORGANIZATIVO DE PROYECTOS
+================================================================================
+
+ESTRUCTURA OBLIGATORIA:
+
+/proyecto/
+├── .gitignore          Control de versiones (ignora compilados y temporales)
+├── CLAUDE.md           Historial único del proyecto (sin versiones)
+├── README.txt          Documentación principal descriptiva
+├── Makefile            Sistema de compilación
+├── requirements.txt    Dependencias Python (si aplica)
+├── *.sh                Scripts SOLO en raíz (demo.sh, probar_todos.sh, etc.)
+├── bin/                Ejecutables compilados
+├── docs/               Documentación adicional
+├── ejemplos/           Archivos de ejemplo
+├── obj/                Archivos objeto (.o, .pyc, .class)
+├── src/                Código fuente (.c, .h, .py, .pas, etc.)
+└── tests/              Tests y pruebas
+
+REGLAS:
+
+1. Archivos fuente SOLO en src/
+2. Ejecutables SOLO en bin/
+3. Archivos objeto SOLO en obj/
+4. Scripts .sh SOLO en raíz del proyecto
+5. Makefile y requirements.txt SOLO en raíz
+6. CLAUDE.md y README.txt únicos en raíz (sin versiones duplicadas)
+7. .gitignore configurado según tipo de proyecto (Python/Pascal/C)
+8. Sin archivos temporales (.bak, *~, __pycache__)
+
+BENEFICIOS:
+
+- Consistencia entre proyectos
+- Navegación intuitiva
+- Compilación estandarizada
+- Documentación centralizada
+- Control de versiones optimizado
+- Fácil mantenimiento
+
+================================================================================

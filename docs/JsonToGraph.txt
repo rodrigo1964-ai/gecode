@@ -1,0 +1,39 @@
+JsonToGraph
+===========
+
+Convierte un JSON de sistema CSP en un grafo de restricciones con AST.
+Es la etapa central que transforma expresiones de texto en una estructura
+de datos procesable por el resto del pipeline.
+
+Uso
+---
+  ./JsonToGraph sistema.json
+  ./JsonToGraph sistema.json salida.json
+
+Entrada
+-------
+  Argumento 1: archivo JSON con "variables", "expressions", "functions".
+  Argumento 2 (opcional): archivo de salida. Sin él escribe a stdout.
+
+Salida
+------
+  JSON con cuatro secciones:
+    "variables"   — variables con id asignado, tipo y dominio
+    "functions"   — funciones user-defined declaradas
+    "constraints" — cada constraint con su AST (nodos tipados) y
+                    referencias a variables/funciones usadas
+    "adjacency"   — índice inverso: qué constraints afectan a cada variable
+
+  Este JSON es el formato de entrada para FwdConsistency, BwdConsistency,
+  ForwardChain, CSPEval, FunctionChecker, GecodeInfo y TestGecodeBridge.
+
+Tipos de nodo AST generados
+----------------------------
+  Variable, Number, Equals, NotEquals, Less, Greater, LessEq, GreaterEq,
+  And, Or, Not, Add, Subtract, Multiply, Divide, Negate,
+  FunctionCall, In, Set, Interval
+
+Posición en el pipeline
+-----------------------
+  ETAPA 2 — después de SyntaxChecker, antes de todo lo demás.
+  ./JsonToGraph sistema.json | ./FwdConsistency

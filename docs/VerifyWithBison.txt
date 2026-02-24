@@ -1,0 +1,194 @@
+╔════════════════════════════════════════════════════════════════╗
+║ VerifyWithBison — Verificador de Soluciones CSP con GNUBison ║
+╚════════════════════════════════════════════════════════════════╝
+
+DESCRIPCIÓN
+
+VerifyWithBison es una herramienta del pipeline CSP de gecode que actúa como
+etapa 7 opcional de verificación. Toma las soluciones encontradas por Gecode
+y las verifica usando GNUBison como evaluador independiente, proporcionando
+validación cruzada de los resultados.
+
+PROPÓSITO
+
+- Validación cruzada: Gecode resuelve el CSP, GNUBison verifica las soluciones
+- Detección de inconsistencias entre el solver y las expresiones originales
+- Auditoría de resultados con persistencia en SQLite
+- Confianza en los resultados del pipeline
+
+FUNCIONAMIENTO
+
+1. Lee el archivo JSON grafo generado por JsonToGraph
+2. Extrae:
+   - Variables con sus tipos (boolean, integer, numeric, set)
+   - Etiquetas (labels) para variables de tipo set
+   - Expresiones originales de las restricciones
+3. Lee soluciones desde stdin en formato "VAR1=val1 VAR2=val2 ..."
+4. Procesa soluciones en LOTES DE 12 para eficiencia:
+   a. Agrupa soluciones en batches de 12
+   b. Para cada solución en el batch:
+      - Transforma la solución al formato JSON de GNUBison
+      - Invoca /home/rodo/GNUBison/bin/bridge
+      - Parsea el resultado JSON
+      - Reporta si la verificación pasó o falló
+   c. Reporta estadísticas del batch
+5. Genera reporte JSON final con estadísticas globales
+
+VENTAJAS DEL PROCESAMIENTO POR LOTES:
+- Mejor seguimiento del progreso (84 batches para 1000 soluciones)
+- Reducción de overhead de I/O
+- Reporte de progreso incremental cada 12 soluciones
+
+TRANSFORMACIÓN DE FORMATOS
+
+Gecode → GNUBison:
+┌─────────────┬──────────────────┬─────────────┬──────────────────────┐
+│ Tipo Gecode │ Valores Gecode   │ Tipo Bison  │ Valores GNUBison     │
+├─────────────┼──────────────────┼─────────────┼──────────────────────┤
+│ boolean     │ 0/1 (integer)    │ logic       │ true/false           │
+│ integer     │ lista discreta   │ integer     │ lista discreta       │
+│ numeric     │ integer×1000     │ float       │ valor/1000           │
+│ set         │ 0,1,2... (índices│ set         │ ["label0","label1"]  │
+└─────────────┴──────────────────┴─────────────┴──────────────────────┘
+
+Ejemplo transformación set:
+  Gecode:   ZONA=0 (donde LabelMap[0] = "NORTE")
+  GNUBison: {"nombre": "ZONA", "tipo": "set", "value": ["NORTE"]}
+
+Ejemplo transformación numeric:
+  Gecode:   TEMPERATURA_C=20000 (escalado ×1000)
+  GNUBison: {"nombre": "TEMPERATURA_C", "tipo": "float", "value": 20.000}
+
+USO
+
+Uso básico (standalone):
+  $ bin/TestGecodeBridge grafo.json | bin/VerifyWithBison grafo.json
+
+Con el pipeline completo:
+  $ ./scripts/pipeline.sh --verify-bison ejemplos/Json_input_1.json
+
+Con persistencia en base de datos:
+  $ ./scripts/pipeline.sh --db runs.db --verify-bison sistema.json
+
+FORMATO DE ENTRADA
+
+VerifyWithBison espera:
+1. Argumento 1: archivo JSON grafo (salida de JsonToGraph)
+2. Stdin: soluciones en formato texto, una por línea:
+   "VAR1=val1 VAR2=val2 VAR3=val3 ..."
+
+Ejemplo de línea de solución:
+  PUERTA_ABIERTA=0 ALARMA_ACTIVA=0 INTENTOS=0 NIVEL_ALERTA=0 TEMPERATURA_C=20000
+
+FORMATO DE SALIDA
+
+JSON con estructura:
+{
+  "input_file": "ruta/al/grafo.json",
+  "gnubison_path": "/home/rodo/GNUBison/bin/bridge",
+  "solutions_total": 1000,
+  "solutions_verified": 1000,
+  "solutions_passed": 1000,
+  "solutions_failed": 0,
+  "summary": {
+    "all_passed": true,
+    "pass_rate": 1.00
+  }
+}
+
+Adicionalmente, imprime a stderr (con procesamiento por lotes):
+  [VerifyWithBison] Loaded 11 variables, 11 labels, 11 expressions
+  [VerifyWithBison] Verifying 1000 solutions in 84 batches of 12...
+    Batch 1/84: Solutions 1-12
+      Solution 1: PASS
+      Solution 2: PASS
+      ...
+      Solution 12: PASS
+    Batch 1 complete: 12 passed, 0 failed
+    Batch 2/84: Solutions 13-24
+      ...
+    Batch 84 complete: 1000 passed, 0 failed
+
+REQUISITOS
+
+- GNUBison instalado en: /home/rodo/GNUBison/bin/bridge
+- Archivo grafo JSON válido (generado por JsonToGraph)
+- Permisos de escritura en /tmp/ (para archivos temporales)
+
+CÓDIGOS DE SALIDA
+
+  0 - Todas las soluciones verificadas exitosamente
+  1 - Error al cargar archivo JSON o GNUBison no disponible
+  2 - Argumentos incorrectos
+
+EJEMPLOS DE USO
+
+1. Verificar soluciones de un archivo:
+   $ bin/TestGecodeBridge grafo.json > soluciones.txt
+   $ bin/VerifyWithBison grafo.json < soluciones.txt
+
+2. Pipeline completo con verificación:
+   $ ./scripts/pipeline.sh --verify-bison ejemplos/Json_input_1.json
+
+3. Verificación con persistencia:
+   $ ./scripts/pipeline.sh --db runs.db --tag test1 --verify-bison sistema.json
+
+4. Verificar solo las primeras N soluciones:
+   $ bin/TestGecodeBridge grafo.json | head -10 | bin/VerifyWithBison grafo.json
+
+TROUBLESHOOTING
+
+"ERROR: GNUBison bridge not found"
+  → Verificar que /home/rodo/GNUBison/bin/bridge existe y es ejecutable
+  → chmod +x /home/rodo/GNUBison/bin/bridge
+
+"ERROR: Cannot load graph JSON"
+  → Verificar que el archivo JSON es válido y generado por JsonToGraph
+  → Verificar que el archivo existe y tiene permisos de lectura
+
+"No solutions to verify"
+  → Verificar que stdin tiene soluciones en el formato correcto
+  → Verificar que TestGecodeBridge está generando soluciones
+
+"Solution N: FAIL (X errors)"
+  → GNUBison encontró inconsistencias en la solución
+  → Revisar las expresiones del problema original
+  → Posible bug en Gecode o en la transformación de formatos
+
+"Solution N: ERROR invoking GNUBison"
+  → Problema al ejecutar el bridge de GNUBison
+  → Verificar logs de GNUBison
+  → Verificar espacio en /tmp/
+
+LIMITACIONES
+
+- Máximo 50 variables por solución
+- Máximo 300 expresiones por problema
+- Máximo 512 etiquetas (labels) para variables set
+- Máximo 1000 soluciones por ejecución
+- Las expresiones deben ser compatibles con la gramática de GNUBison
+
+INTEGRACIÓN CON PIPELINE
+
+El verificador se integra como etapa 7 opcional:
+
+  Etapa 1: SyntaxChecker   → valida sintaxis JSON
+  Etapa 2: JsonToGraph     → construye grafo AST
+  Etapa 3: FunctionChecker → verifica funciones
+  Etapa 4: FwdConsistency  → propagación AC-3
+  Etapa 5: BwdConsistency  → proyección inversa
+  Etapa 6: TestGecodeBridge → resolución CSP
+  Etapa 7: VerifyWithBison → verificación GNUBison (opcional)
+
+La etapa solo se ejecuta si se usa el flag --verify-bison en pipeline.sh
+
+VER TAMBIÉN
+
+- docs/pipeline.txt - Documentación del pipeline completo
+- docs/TestGecodeBridge.txt - Documentación del solver
+- /home/rodo/GNUBison/README.md - Documentación de GNUBison
+
+AUTOR
+
+Motor Lógico Tipado Multidominio
+Integrado con Claude Code

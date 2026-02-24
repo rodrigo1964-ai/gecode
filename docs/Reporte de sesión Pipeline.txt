@@ -1,0 +1,101 @@
+  Reporte de sesión — Pipeline CSP + GecodeInfo                                                                                                                                         
+                                                                                                                                                                                        
+  ---                                                                                                                                                                                   
+  1. Herramienta construida: GecodeInfo                                                                                                                                                 
+                                                                                                                                                                                        
+  Función: Toma la salida de JsonToGraph y responde dos preguntas:
+  - ¿Cuántas soluciones totales existen en el espacio actual?
+  - Si fijo la variable X al valor V, ¿cuántas soluciones quedan?                                                                                                                       
+                                                                                                                                                                                        
+  Pipeline completo:                                                                                                                                                                    
+  SyntaxChecker → JsonToGraph → FunctionChecker → CSPEval → GecodeInfo                                                                                                                  
+
+  Bug crítico resuelto durante la sesión:
+  Los nodos Interval del AST usan campos "lo"/"hi" (IDs de nodo) en lugar de "left"/"right". Sin el fix, todos los CT_IN_INTERVAL quedaban con Lo=0, Hi=0 → modelo FAILED en todos los
+  casos. Fix en ParseNodeBlock de UCSPJson.pas.
+
+  ---
+  2. Corridas realizadas
+
+  Tanda 1 — Archivos del pipeline existente (10 archivos)
+
+  ┌───────────────────┬────────────┬─────────────────────┐
+  │      Archivo      │ Soluciones │ Vars indeterminadas │
+  ├───────────────────┼────────────┼─────────────────────┤
+  │ Json_output_1..10 │ 252 – 1476 │         2–5         │
+  └───────────────────┴────────────┴─────────────────────┘
+
+  Tanda 2 — Escenarios mixtos (boolean + set + integer + numeric, 10 bots)
+
+  ┌───────────────┬────────────┬────────────┐
+  │   Escenario   │ Soluciones │ Vars libre │
+  ├───────────────┼────────────┼────────────┤
+  │ semaforo      │      1,836 │     4      │
+  ├───────────────┼────────────┼────────────┤
+  │ dieta         │        832 │     4      │
+  ├───────────────┼────────────┼────────────┤
+  │ inventario    │      8,000 │     4      │
+  ├───────────────┼────────────┼────────────┤
+  │ turno_medico  │        992 │     4      │
+  ├───────────────┼────────────┼────────────┤
+  │ sensores      │      2,272 │     4      │
+  ├───────────────┼────────────┼────────────┤
+  │ calidad_agua  │      1,008 │     4      │
+  ├───────────────┼────────────┼────────────┤
+  │ servidor      │      5,418 │     3      │
+  ├───────────────┼────────────┼────────────┤
+  │ viaje         │     41,632 │     4      │
+  ├───────────────┼────────────┼────────────┤
+  │ alarma        │      4,192 │     4      │
+  ├───────────────┼────────────┼────────────┤
+  │ climatizacion │     84,042 │     4      │
+  └───────────────┴────────────┴────────────┘
+
+  Tanda 3 — Solo boolean + set, variables independientes (10 bots)
+
+  Distribución perfectamente uniforme (cada valor contribuye igual). Total: 18–36 soluciones por escenario. Confirmó el comportamiento esperado con constraints no cruzadas.
+
+  Tanda 4 — Constraints cruzadas VAR_A <> VAR_B (10 bots)
+
+  Primera aparición de asimetría real en if_fixed:
+
+  PERFIL(3) <> ZONA(2):
+    VISITANTE:2 | EMPLEADO:2 | ADMIN:4   ← ADMIN dobla a los demás
+
+  Patrón: el label con código entero > max(otro set) no elimina ninguna opción del otro → más soluciones.
+
+  Tanda 5 — Constraints cruzadas encadenadas + 5 variables (10 bots)
+
+  Patrón SET_A(4) <> SET_B(3) y SET_B(3) <> SET_C(2). Efecto cascada:
+
+  SET_A: label0:12 | label1:12 | label2:8 | label3:16
+  SET_B: label0:12 | label1:12 | label2:24
+  SET_C: label0:24 | label1:24
+  Total = 48  (todos los escenarios, por isomorfismo del patrón 4-3-2)
+
+  - label2 de SET_A tiene menos (8) porque al eliminarlo de SET_B, elimina el label más "generoso" de SET_B
+  - label3 de SET_A tiene más (16) porque su código no choca con ningún valor de SET_B
+
+  ---
+  3. Totales de la sesión
+
+  ┌────────────────────────────────┬────────────────────────────────┐
+  │            Métrica             │             Valor              │
+  ├────────────────────────────────┼────────────────────────────────┤
+  │ Archivos JSON procesados       │                             40 │
+  ├────────────────────────────────┼────────────────────────────────┤
+  │ Bots lanzados en paralelo      │                            50+ │
+  ├────────────────────────────────┼────────────────────────────────┤
+  │ Bugs resueltos                 │                              2 │
+  ├────────────────────────────────┼────────────────────────────────┤
+  │ Escenarios distintos modelados │                             40 │
+  ├────────────────────────────────┼────────────────────────────────┤
+  │ Tipos de variable ejercitados  │ boolean, set, integer, numeric │
+  └────────────────────────────────┴────────────────────────────────┘
+
+  ---
+  4. Conclusión sobre GecodeInfo
+
+  La herramienta funciona como oráculo de incertidumbre acotada: dado un modelo parcialmente resuelto, cuantifica exactamente cuánta información gana fijar cada variable a cada valor.
+  Esto permite tomar decisiones de observación óptimas — la variable que, al fijarse, más reduce el espacio es la de mayor ganancia de información.
+

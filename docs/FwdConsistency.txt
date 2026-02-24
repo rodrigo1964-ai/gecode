@@ -1,0 +1,39 @@
+FwdConsistency
+==============
+
+Aplica consistencia de arco hacia adelante (AC-3) al grafo de restricciones.
+Propaga cada constraint desde las variables conocidas hacia las desconocidas,
+reduciendo dominios progresivamente.
+
+Uso
+---
+  ./FwdConsistency grafo.json
+  ./FwdConsistency grafo.json salida.json
+
+Entrada
+-------
+  Argumento 1: JSON de grafo (salida de JsonToGraph).
+  Argumento 2 (opcional): archivo de salida. Sin él escribe a stdout.
+
+Salida
+------
+  JSON con:
+    "status"     — "arc_consistent" | "inconsistent"
+    "queue_ops"  — operaciones de cola AC-3
+    "firings"    — reglas disparadas
+    "steps"      — array de pasos con cada reducción de dominio:
+                   { "var": "X", "constraint": "...", "before": [...], "after": [...] }
+    "variables"  — dominios finales de todas las variables
+
+Algoritmo
+---------
+  AC-3 estándar: mantiene cola de arcos pendientes.
+  Para cada constraint que involucra a una variable, evalúa el constraint
+  e intersecta el resultado con el dominio actual.
+  Si un dominio queda vacío → "inconsistent".
+
+Posición en el pipeline
+-----------------------
+  ETAPA 4 — después de FunctionChecker.
+  Complementa a BwdConsistency: ambos se aplican al mismo grafo.
+  ./FwdConsistency grafo.json | ./JsonSink runs.db fwd

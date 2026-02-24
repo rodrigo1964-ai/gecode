@@ -1,0 +1,42 @@
+TestIntervalos
+==============
+
+Programa de demostración que resuelve un sistema de restricciones lineales
+con dominios continuos discretizados, y visualiza la región factible como
+un plot ASCII.
+
+Uso
+---
+  ./TestIntervalos
+
+Entrada
+-------
+  Ninguna. El sistema está definido en el código.
+
+Salida (stdout)
+---------------
+  - Estadísticas de la región factible (número de puntos, rangos x/y)
+  - Plot ASCII de la región factible con ejes etiquetados
+  - Lista de los primeros puntos solución encontrados
+
+Sistema de restricciones
+------------------------
+  Variables: x ∈ [-2, 5], y ∈ [-1, 6]   (discretizadas en paso 0.1)
+
+  Restricciones:
+    5x + 3y ∈ [1, 3]
+    6x + 10y ∈ [10, 50]
+
+  Define un polígono (intersección de dos bandas paralelas) en el plano.
+
+Discretización
+--------------
+  Los dominios continuos se representan como enteros multiplicados por 10
+  (escala 10×) para evitar aritmética de punto flotante en el solver.
+  Los valores se dividen por 10 al mostrar resultados.
+
+Propósito
+---------
+  Ejemplo de uso de CT_IN_INTERVAL y CT_LINEAR_LE/GE con variables
+  numéricas de dominio continuo discretizado.
+  Demuestra la capacidad de Gecode para resolver sistemas geométricos.

@@ -1,0 +1,47 @@
+JsonSource
+==========
+
+Fuente del pipeline: recupera un JSON persistido en SQLite y lo emite
+por stdout para continuar el pipeline desde un punto guardado.
+
+Uso
+---
+  ./JsonSource runs.db                    → último registro insertado
+  ./JsonSource runs.db fwd               → último registro con tag "fwd"
+  ./JsonSource runs.db fwd 42            → registro con id=42 y tag="fwd"
+
+Entrada
+-------
+  Argumento 1: ruta al archivo SQLite (debe existir).
+  Argumento 2 (opcional): tag para filtrar ("graph", "fwd", "bwd", "csp", ...)
+  Argumento 3 (opcional): id específico del registro.
+
+Salida (stdout)
+---------------
+  El payload JSON original del registro recuperado.
+  Listo para piping a la siguiente etapa.
+
+Casos de uso típicos
+--------------------
+  # Guardar un grafo y reutilizarlo en múltiples ramas
+  ./JsonToGraph sistema.json | ./JsonSink pipeline.db graph
+
+  # Correr FwdConsistency y BwdConsistency desde el mismo grafo
+  ./JsonSource pipeline.db graph | ./FwdConsistency | ./JsonSink pipeline.db fwd
+  ./JsonSource pipeline.db graph | ./BwdConsistency | ./JsonSink pipeline.db bwd
+
+  # Resolver CSP desde el grafo guardado
+  ./JsonSource pipeline.db graph | ./TestGecodeBridge
+
+  # Recuperar resultado anterior
+  ./JsonSource pipeline.db csp 17 | python3 analizar.py
+
+Notas
+-----
+  - Si no existe el tag o id, termina con error en stderr y exit 1.
+  - Usa la misma binding mínima de SQLite3 que JsonSink.
+
+Posición en el pipeline
+-----------------------
+  Inicio de cualquier etapa cuando el input viene de SQLite.
+  Complemento de JsonSink — juntos implementan memoria persistente.

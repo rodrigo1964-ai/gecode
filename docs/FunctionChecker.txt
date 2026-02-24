@@ -1,0 +1,43 @@
+FunctionChecker
+===============
+
+Verifica que los archivos objeto (.so / .o) de las funciones user-defined
+referenciadas en el grafo existan en los directorios de búsqueda antes de
+intentar ejecutar el pipeline.
+
+Uso
+---
+  ./FunctionChecker grafo.json
+  ./FunctionChecker grafo.json --path ./lib:./obj:/usr/local/lib/csp
+
+Entrada
+-------
+  Argumento 1: JSON de grafo (salida de JsonToGraph).
+  Argumento 2 (opcional): --path dir1:dir2:...
+    Directorios donde buscar los .so/.o de funciones.
+    Default: .:./lib:./obj:/usr/local/lib/csp
+
+Salida (stdout)
+---------------
+  JSON con resultado:
+    {
+      "status": "ok"|"missing"|"error",
+      "checked": N,
+      "found": N,
+      "missing": N,
+      "functions": [
+        { "name": "...", "object": "func_nombre.so", "path": "...", "found": true }
+      ]
+    }
+
+Códigos de salida
+-----------------
+  0 = todos los objetos encontrados
+  1 = algún objeto faltante (puede continuar con advertencia)
+  2 = error fatal (no se puede continuar)
+
+Posición en el pipeline
+-----------------------
+  ETAPA 3 — después de JsonToGraph, antes de FwdConsistency.
+  Solo relevante si el sistema usa funciones user-defined.
+  Si no hay funciones, el resultado es siempre "ok".

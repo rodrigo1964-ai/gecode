@@ -1,0 +1,47 @@
+GecodeInfo
+==========
+
+Analiza el espacio de soluciones CSP usando Gecode. Para cada variable
+no-determinada calcula cuántas soluciones existen cuando esa variable
+se fija a cada valor posible, generando un mapa de distribución del
+espacio de búsqueda.
+
+Uso
+---
+  ./GecodeInfo grafo.json
+
+Entrada
+-------
+  Argumento: JSON de grafo (salida de JsonToGraph).
+
+Salida (stdout)
+---------------
+  JSON con:
+    {
+      "status": "ok",
+      "total_solutions": N,
+      "analysis": [
+        {
+          "name": "VARIABLE",
+          "type": "set"|"integer"|"numeric"|"boolean",
+          "if_fixed": [
+            { "value": "VALOR", "solutions": N }
+          ]
+        }
+      ]
+    }
+
+  Variables numéricas se discretizan en ~20 bins uniformes sobre su dominio.
+  Variables ya determinadas (un solo valor) se omiten del análisis.
+
+Diferencia con TestGecodeBridge
+--------------------------------
+  GecodeInfo: análisis del espacio — cuántas soluciones por valor.
+  TestGecodeBridge: enumeración y análisis completo del espacio.
+  Ambos usan el mismo bridge C++/Gecode internamente.
+
+Posición en el pipeline
+-----------------------
+  Herramienta de análisis/exploración, no de resolución.
+  Útil para entender qué variables tienen mayor impacto en el espacio.
+  ./GecodeInfo grafo.json

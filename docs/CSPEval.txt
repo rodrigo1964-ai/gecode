@@ -1,0 +1,43 @@
+CSPEval
+=======
+
+Evaluador CSP genérico con propagación iterativa de dominios.
+Maneja los cuatro tipos de variable del motor (numeric, integer, boolean, set)
+con operaciones de reducción apropiadas para cada tipo.
+
+Uso
+---
+  ./CSPEval grafo.json
+  ./CSPEval grafo.json salida.json
+
+Entrada
+-------
+  Argumento 1: JSON de grafo (salida de JsonToGraph).
+  Argumento 2 (opcional): archivo de salida. Sin él escribe a stdout.
+
+Salida
+------
+  JSON con:
+    "status"      — "ok" | "solved" | "contradiction"
+    "iterations"  — iteraciones hasta punto fijo (máx 200)
+    "variables"   — dominios finales con flags:
+                    { "name": "X", "type": "integer", "domain": [...],
+                      "solved": true/false, "empty": true/false }
+
+Tipos de variable
+-----------------
+  numeric  — dominio intervalo [lo, hi] con aritmética de punto flotante
+  integer  — dominio enumerado de enteros
+  boolean  — dominio {false, true}
+  set      — dominio enumerado de etiquetas
+
+Diferencia con FwdConsistency/ForwardChain
+------------------------------------------
+  CSPEval no genera el array detallado de "steps".
+  Produce solo el resultado final de dominios.
+  Más rápido para sistemas grandes donde el trazado no es necesario.
+
+Posición en el pipeline
+-----------------------
+  Etapa de evaluación rápida antes de pasar a TestGecodeBridge.
+  ./CSPEval grafo.json | ./JsonSink runs.db cspeval

@@ -1,0 +1,65 @@
+TestGecodeBridge
+================
+
+Resuelve un CSP completo usando el motor Gecode vía bridge C++/Pascal.
+Lee el grafo de constraints, construye el modelo de programación con
+restricciones, y ejecuta búsqueda DFS con backtracking para encontrar
+todas las soluciones válidas.
+
+Uso
+---
+  ./TestGecodeBridge grafo.json
+  ./TestGecodeBridge                   → corre todos los JSON en tests/
+
+Entrada
+-------
+  Argumento: JSON de grafo (salida de JsonToGraph o JsonSource).
+  Sin argumento: busca *.json en el subdirectorio tests/.
+
+Salida (stdout)
+---------------
+  JSON con análisis del espacio de soluciones:
+    {
+      "status": "ok",
+      "total_solutions": 252,
+      "analysis": [
+        {
+          "name": "ZONA",
+          "type": "set",
+          "if_fixed": [
+            { "value": "NORTE", "solutions": 126 },
+            { "value": "SUR",   "solutions": 126 }
+          ]
+        },
+        ...
+      ]
+    }
+
+  Para cada variable no-determinada reporta cuántas soluciones existen
+  cuando esa variable se fija a cada valor posible de su dominio.
+
+Tipos de variable soportados
+-----------------------------
+  boolean → IntVar [0,1]
+  integer → IntVar [min,max] + CT_IN_SET
+  set     → IntVar [0,N-1] con mapa de etiquetas (label→entero)
+  numeric → IntVar [min×1000, max×1000] con escala 1000×
+
+Constraints soportados
+-----------------------
+  CT_EQ, CT_NEQ, CT_LT, CT_GT, CT_LE, CT_GE
+  CT_IN_INTERVAL, CT_IN_SET
+  CT_LINEAR_EQ/LE/GE/LT/GT/NEQ
+  CT_ABS_EQ/LE/GE
+  CT_DIST_EQ/LE/GE
+  CT_ALL_DIFF
+
+Motor de búsqueda
+-----------------
+  Gecode DFS<CSPModel> con branching INT_VAR_SIZE_MIN / INT_VAL_MIN.
+  Clona el Space en cada nodo del árbol para backtracking.
+
+Posición en el pipeline
+-----------------------
+  ETAPA 6 — etapa final de resolución CSP exacta.
+  ./TestGecodeBridge grafo.json | ./JsonSink runs.db csp

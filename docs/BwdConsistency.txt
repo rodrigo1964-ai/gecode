@@ -1,0 +1,38 @@
+BwdConsistency
+==============
+
+Aplica consistencia de arco hacia atrás (HC4-revise) al grafo de restricciones.
+Para constraints del tipo V = f(W), invierte f para restringir W en función
+del dominio reducido de V. Complementa a FwdConsistency.
+
+Uso
+---
+  ./BwdConsistency grafo.json
+  ./BwdConsistency grafo.json salida.json
+
+Entrada
+-------
+  Argumento 1: JSON de grafo (salida de JsonToGraph).
+  Argumento 2 (opcional): archivo de salida. Sin él escribe a stdout.
+
+Salida
+------
+  JSON con la misma estructura que FwdConsistency:
+    "status"     — "arc_consistent" | "inconsistent"
+    "queue_ops"  — operaciones de cola
+    "firings"    — reglas disparadas
+    "steps"      — reducciones de dominio (marcadas con "(bwd)")
+    "variables"  — dominios finales
+
+Diferencia con FwdConsistency
+------------------------------
+  FwdConsistency: recorre constraints en orden natural (izq → der)
+  BwdConsistency: recorre en orden inverso (der → izq), proyectando
+                  la función inversa sobre los operandos.
+
+  Juntos cubren más reducciones de dominio que cada uno por separado.
+
+Posición en el pipeline
+-----------------------
+  ETAPA 5 — en paralelo o secuencia con FwdConsistency.
+  ./BwdConsistency grafo.json | ./JsonSink runs.db bwd

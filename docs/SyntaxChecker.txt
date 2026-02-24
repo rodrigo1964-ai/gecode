@@ -1,0 +1,40 @@
+SyntaxChecker
+=============
+
+Valida la sintaxis y coherencia semántica de un archivo JSON de sistema CSP
+antes de procesarlo con el pipeline.
+
+Uso
+---
+  ./SyntaxChecker sistema.json
+
+Entrada
+-------
+  Argumento: archivo JSON con campos "variables", "expressions", "functions".
+
+Salida (stdout)
+---------------
+  JSON con resultado de validación:
+    { "status": "ok" }
+    { "status": "error", "errors": [ { "rule": "...", "msg": "..." } ] }
+
+Reglas que verifica
+-------------------
+  1. Campos obligatorios presentes (variables, expressions)
+  2. Variables referenciadas en constraints existen
+  3. Funciones usadas están declaradas
+  4. Referencias a variables y funciones se resuelven
+  5. Sintaxis de cada constraint es parseable
+  6. El campo "value" es subconjunto del "domain"
+  7. Aridad de funciones user-defined es correcta
+  8. No se sobreescribe un built-in del motor (abs, dist, etc.)
+
+Códigos de salida
+-----------------
+  0 = ok
+  1 = errores de validación encontrados
+
+Posición en el pipeline
+-----------------------
+  ETAPA 1 — siempre primera antes de JsonToGraph.
+  ./SyntaxChecker sistema.json && ./JsonToGraph sistema.json | ...

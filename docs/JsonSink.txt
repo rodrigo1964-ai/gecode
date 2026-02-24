@@ -1,0 +1,44 @@
+JsonSink
+========
+
+Sumidero del pipeline: lee JSON de stdin y lo persiste en una base de datos
+SQLite, devolviendo por stdout un JSON de confirmación encadenable.
+
+Uso
+---
+  comando | ./JsonSink runs.db [tag]
+
+Entrada
+-------
+  stdin:      JSON producido por cualquier etapa del pipeline.
+  Argumento 1: ruta al archivo SQLite (se crea si no existe).
+  Argumento 2: tag opcional para clasificar el registro ("graph", "fwd", etc.)
+
+Salida (stdout)
+---------------
+  JSON de confirmación encadenable:
+    { "ok": true,  "id": 42, "tag": "fwd", "status": "arc_consistent" }
+    { "ok": false, "error": "mensaje de error" }
+
+Esquema SQLite
+--------------
+  CREATE TABLE runs (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts      TEXT    -- timestamp ISO-8601 automático
+    tag     TEXT,   -- etiqueta de la etapa
+    status  TEXT,   -- campo "status" extraído del JSON
+    payload TEXT    -- JSON completo de la etapa
+  );
+
+Notas
+-----
+  - El campo "status" se extrae automáticamente del JSON de entrada.
+  - El payload completo se almacena para replay o auditoría.
+  - Usa binding de SQLite3 vía cdecl; no requiere runtime adicional.
+  - Para leer los datos persistidos, usar JsonSource.
+
+Posición en el pipeline
+-----------------------
+  Cierre de cualquier etapa cuando se desea persistencia.
+  ./FwdConsistency grafo.json | ./JsonSink pipeline.db fwd
+  ./TestGecodeBridge grafo.json | ./JsonSink pipeline.db csp

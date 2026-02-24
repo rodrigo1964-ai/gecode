@@ -1,0 +1,48 @@
+TestComplejo
+============
+
+Programa de demostración que resuelve dos problemas CSP clásicos usando
+el bridge Gecode directamente desde Pascal (sin JSON).
+
+Uso
+---
+  ./TestComplejo
+
+Entrada
+-------
+  Ninguna. Los problemas están definidos en el código.
+
+Salida (stdout)
+---------------
+  Resultado formateado en texto ASCII de ambos problemas.
+
+Problema 1: SEND + MORE = MONEY
+--------------------------------
+  Criptoaritmética: asignar un dígito distinto (0-9) a cada letra
+  S, E, N, D, M, O, R, Y tal que la suma SEND + MORE = MONEY sea válida.
+  S y M no pueden ser 0 (primer dígito de número).
+
+  Restricciones:
+    - 8 variables enteras con dominio [0..9] o [1..9]
+    - CT_ALL_DIFF sobre las 8 letras
+    - CT_LINEAR_EQ: 1000S + 91E - 90N + D - 9000M - 900O + 10R - Y = 0
+
+  Resultado único: SEND=9567, MORE=1085, MONEY=10652
+
+Problema 2: Cuadrado Mágico 3×3
+---------------------------------
+  Colocar los números 1..9 en una cuadrícula 3×3 de forma que todas
+  las filas, columnas y diagonales sumen 15.
+
+  Restricciones:
+    - 9 variables enteras [1..9]
+    - CT_ALL_DIFF sobre las 9 celdas
+    - 8 constraints CT_LINEAR_EQ (3 filas + 3 columnas + 2 diagonales = 15)
+
+  Encuentra las 8 soluciones (rotaciones y reflexiones del cuadrado base).
+
+Propósito
+---------
+  Prueba de integración del bridge Pascal ↔ Gecode.
+  Referencia de uso de la API: CSPMakeVar, CSPAllDiff, CSPLinear,
+  csp_create, csp_add_constraint, csp_solve_all.

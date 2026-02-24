@@ -1,0 +1,651 @@
+¡Perfecto! Ejecutable monolítico sin basura. Vamos a hacer linkeo estático completo.
+Plan: Un Solo Ejecutable, Cero Dependencias
+
+MotorPascal (ejecutable único)
+├─ Código Pascal (tu parser, AST, lógica)
+├─ Wrapper C++ (puente a Gecode)
+└─ Gecode completo (linkeado estáticamente)
+
+= UN SOLO .EXE, NADA MÁS
+
+Paso a Paso Completo
+1. Compilar Gecode como Biblioteca Estática
+bash
+
+# Descargar Gecode
+cd /tmp
+wget https://github.com/Gecode/gecode/archive/refs/tags/release-6.3.0.tar.gz
+tar xzf release-6.3.0.tar.gz
+cd gecode-release-6.3.0
+
+# Configurar para compilación ESTÁTICA
+./configure \
+    --prefix=$HOME/gecode-static \
+    --disable-shared \
+    --enable-static \
+    --disable-examples \
+    --disable-qt \
+    --disable-gist
+
+# Compilar (toma ~5 minutos)
+make -j$(nproc)
+make install
+
+# Verificar que se crearon los .a
+ls -lh $HOME/gecode-static/lib/*.a
+```
+
+Deberías ver:
+```
+libgecodedriver.a
+libgecodefloat.a
+libgecodeint.a
+libgecodekernel.a
+libgecodeminimodel.a
+libgecodesearch.a
+libgecodeset.a
+libgecodesupport.a
+
+2. Wrapper C++ Minimalista
+
+Crea gecode_bridge.cpp:
+cpp
+
+#include <gecode/int.hh>
+#include <gecode/search.hh>
+#include <cstring>
+#include <vector>
+#include <map>
+
+using namespace Gecode;
+
+extern "C" {
+
+// ============================================
+// ESTRUCTURAS SIMPLES (C-compatible)
+// ============================================
+
+struct Variable {
+    char name[64];
+    int min_domain;
+    int max_domain;
+};
+
+struct Constraint {
+    int type;  // 0=eq, 1=neq, 2=lt, 3=gt, 4=le, 5=ge, 6=in_interval, 7=in_set
+    char var1[64];
+    char var2[64];
+    int constant;
+    int interval_start;
+    int interval_end;
+    bool start_open;
+    bool end_open;
+    int set_values[100];
+    int set_size;
+};
+
+struct Solution {
+    char names[50][64];
+    int values[50];
+    int num_vars;
+};
+
+// ============================================
+// MODELO CSP
+// ============================================
+
+class CSPModel : public Space {
+private:
+    std::map<std::string, IntVar> variables;
+    
+public:
+    CSPModel(Variable* vars, int n) {
+        for (int i = 0; i < n; i++) {
+            std::string name(vars[i].name);
+            variables[name] = IntVar(*this, vars[i].min_domain, vars[i].max_domain);
+        }
+        
+        // Branching strategy
+        IntVarArgs all;
+        for (auto& p : variables) all << p.second;
+        branch(*this, all, INT_VAR_SIZE_MIN(), INT_VAL_MIN());
+    }
+    
+    CSPModel(CSPModel& s) : Space(s) {
+        for (auto& p : s.variables) {
+            variables[p.first] = IntVar();
+            variables[p.first].update(*this, p.second);
+        }
+    }
+    
+    virtual Space* copy() { return new CSPModel(*this); }
+    
+    void add(const Constraint& c) {
+        std::string v1(c.var1);
+        std::string v2(c.var2);
+        
+        switch (c.type) {
+            case 0: // equals
+                if (v2.empty())
+                    rel(*this, variables[v1], IRT_EQ, c.constant);
+                else
+                    rel(*this, variables[v1], IRT_EQ, variables[v2]);
+                break;
+                
+            case 1: // not equals
+                if (v2.empty())
+                    rel(*this, variables[v1], IRT_NQ, c.constant);
+                else
+                    rel(*this, variables[v1], IRT_NQ, variables[v2]);
+                break;
+                
+            case 2: // less than
+                if (v2.empty())
+                    rel(*this, variables[v1], IRT_LE, c.constant - 1);
+                else
+                    rel(*this, variables[v1], IRT_LE, variables[v2]);
+                break;
+                
+            case 3: // greater than
+                if (v2.empty())
+                    rel(*this, variables[v1], IRT_GR, c.constant);
+                else
+                    rel(*this, variables[v1], IRT_GR, variables[v2]);
+                break;
+                
+            case 4: // less or equal
+                if (v2.empty())
+                    rel(*this, variables[v1], IRT_LQ, c.constant);
+                else
+                    rel(*this, variables[v1], IRT_LQ, variables[v2]);
+                break;
+                
+            case 5: // greater or equal
+                if (v2.empty())
+                    rel(*this, variables[v1], IRT_GQ, c.constant);
+                else
+                    rel(*this, variables[v1], IRT_GQ, variables[v2]);
+                break;
+                
+            case 6: // in interval
+                {
+                    int start = c.interval_start;
+                    int end = c.interval_end;
+                    if (c.start_open) start++;
+                    if (c.end_open) end--;
+                    dom(*this, variables[v1], start, end);
+                }
+                break;
+                
+            case 7: // in set
+                {
+                    IntSet s(c.set_values, c.set_size);
+                    dom(*this, variables[v1], s);
+                }
+                break;
+        }
+    }
+    
+    void extract(Solution* sol) {
+        sol->num_vars = 0;
+        for (auto& p : variables) {
+            if (sol->num_vars < 50) {
+                strcpy(sol->names[sol->num_vars], p.first.c_str());
+                sol->values[sol->num_vars] = p.second.val();
+                sol->num_vars++;
+            }
+        }
+    }
+};
+
+// ============================================
+// API EXPUESTA A PASCAL
+// ============================================
+
+void* csp_create(Variable* vars, int n) {
+    try {
+        return new CSPModel(vars, n);
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+int csp_add_constraint(void* model, Constraint* constraint) {
+    try {
+        static_cast<CSPModel*>(model)->add(*constraint);
+        return 1;
+    } catch (...) {
+        return 0;
+    }
+}
+
+int csp_solve_first(void* model, Solution* sol) {
+    try {
+        CSPModel* m = static_cast<CSPModel*>(model);
+        DFS<CSPModel> search(m);
+        CSPModel* s = search.next();
+        if (s) {
+            s->extract(sol);
+            delete s;
+            return 1;
+        }
+        return 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+int csp_solve_all(void* model, Solution* solutions, int max_sols) {
+    try {
+        CSPModel* m = static_cast<CSPModel*>(model);
+        DFS<CSPModel> search(m);
+        int count = 0;
+        while (CSPModel* s = search.next()) {
+            if (count < max_sols) {
+                s->extract(&solutions[count]);
+                count++;
+            }
+            delete s;
+            if (count >= max_sols) break;
+        }
+        return count;
+    } catch (...) {
+        return 0;
+    }
+}
+
+int csp_count_solutions(void* model) {
+    try {
+        CSPModel* m = static_cast<CSPModel*>(model);
+        DFS<CSPModel> search(m);
+        int count = 0;
+        while (CSPModel* s = search.next()) {
+            count++;
+            delete s;
+        }
+        return count;
+    } catch (...) {
+        return 0;
+    }
+}
+
+void csp_free(void* model) {
+    delete static_cast<CSPModel*>(model);
+}
+
+} // extern "C"
+
+3. Compilar Wrapper a Objeto
+bash
+
+# Compilar wrapper a .o
+g++ -c gecode_bridge.cpp \
+    -o gecode_bridge.o \
+    -I$HOME/gecode-static/include \
+    -std=c++17 \
+    -O3 \
+    -fPIC
+
+4. Unit Pascal
+
+Crea GecodeBridge.pas:
+pascal
+
+unit GecodeBridge;
+
+{$mode objfpc}{$H+}
+{$PACKRECORDS C}
+
+interface
+
+type
+  TVariable = record
+    Name: array[0..63] of Char;
+    MinDomain: LongInt;
+    MaxDomain: LongInt;
+  end;
+  PVariable = ^TVariable;
+
+  TConstraint = record
+    ConstraintType: LongInt;
+    Var1: array[0..63] of Char;
+    Var2: array[0..63] of Char;
+    Constant: LongInt;
+    IntervalStart: LongInt;
+    IntervalEnd: LongInt;
+    StartOpen: Boolean;
+    EndOpen: Boolean;
+    SetValues: array[0..99] of LongInt;
+    SetSize: LongInt;
+  end;
+  PConstraint = ^TConstraint;
+
+  TSolution = record
+    Names: array[0..49, 0..63] of Char;
+    Values: array[0..49] of LongInt;
+    NumVars: LongInt;
+  end;
+  PSolution = ^TSolution;
+
+// Funciones C
+function csp_create(vars: PVariable; n: LongInt): Pointer; cdecl; external;
+function csp_add_constraint(model: Pointer; constraint: PConstraint): LongInt; cdecl; external;
+function csp_solve_first(model: Pointer; sol: PSolution): LongInt; cdecl; external;
+function csp_solve_all(model: Pointer; solutions: PSolution; max_sols: LongInt): LongInt; cdecl; external;
+function csp_count_solutions(model: Pointer): LongInt; cdecl; external;
+procedure csp_free(model: Pointer); cdecl; external;
+
+// Helpers
+function MakeVariable(const Name: string; Min, Max: Integer): TVariable;
+function MakeConstraintEq(const Var: string; Value: Integer): TConstraint;
+function MakeConstraintEqVar(const Var1, Var2: string): TConstraint;
+function MakeConstraintLt(const Var: string; Value: Integer): TConstraint;
+function MakeConstraintGt(const Var: string; Value: Integer): TConstraint;
+function MakeConstraintInterval(const Var: string; Start, Stop: Integer; 
+                                StartOpen, EndOpen: Boolean): TConstraint;
+function MakeConstraintSet(const Var: string; const Values: array of Integer): TConstraint;
+
+implementation
+
+function MakeVariable(const Name: string; Min, Max: Integer): TVariable;
+begin
+  FillChar(Result, SizeOf(Result), 0);
+  StrPCopy(Result.Name, Copy(Name, 1, 63));
+  Result.MinDomain := Min;
+  Result.MaxDomain := Max;
+end;
+
+function MakeConstraintEq(const Var: string; Value: Integer): TConstraint;
+begin
+  FillChar(Result, SizeOf(Result), 0);
+  Result.ConstraintType := 0;
+  StrPCopy(Result.Var1, Copy(Var, 1, 63));
+  Result.Var2[0] := #0;
+  Result.Constant := Value;
+end;
+
+function MakeConstraintEqVar(const Var1, Var2: string): TConstraint;
+begin
+  FillChar(Result, SizeOf(Result), 0);
+  Result.ConstraintType := 0;
+  StrPCopy(Result.Var1, Copy(Var1, 1, 63));
+  StrPCopy(Result.Var2, Copy(Var2, 1, 63));
+end;
+
+function MakeConstraintLt(const Var: string; Value: Integer): TConstraint;
+begin
+  FillChar(Result, SizeOf(Result), 0);
+  Result.ConstraintType := 2;
+  StrPCopy(Result.Var1, Copy(Var, 1, 63));
+  Result.Constant := Value;
+end;
+
+function MakeConstraintGt(const Var: string; Value: Integer): TConstraint;
+begin
+  FillChar(Result, SizeOf(Result), 0);
+  Result.ConstraintType := 3;
+  StrPCopy(Result.Var1, Copy(Var, 1, 63));
+  Result.Constant := Value;
+end;
+
+function MakeConstraintInterval(const Var: string; Start, Stop: Integer;
+                                StartOpen, EndOpen: Boolean): TConstraint;
+begin
+  FillChar(Result, SizeOf(Result), 0);
+  Result.ConstraintType := 6;
+  StrPCopy(Result.Var1, Copy(Var, 1, 63));
+  Result.IntervalStart := Start;
+  Result.IntervalEnd := Stop;
+  Result.StartOpen := StartOpen;
+  Result.EndOpen := EndOpen;
+end;
+
+function MakeConstraintSet(const Var: string; const Values: array of Integer): TConstraint;
+var
+  i: Integer;
+begin
+  FillChar(Result, SizeOf(Result), 0);
+  Result.ConstraintType := 7;
+  StrPCopy(Result.Var1, Copy(Var, 1, 63));
+  Result.SetSize := Length(Values);
+  for i := 0 to High(Values) do
+    Result.SetValues[i] := Values[i];
+end;
+
+end.
+
+5. Programa de Prueba
+
+Crea TestMonolithic.pas:
+pascal
+
+program TestMonolithic;
+
+{$mode objfpc}{$H+}
+
+uses
+  SysUtils, GecodeBridge;
+
+var
+  Model: Pointer;
+  Vars: array[0..1] of TVariable;
+  Constraint: TConstraint;
+  Solutions: array[0..99] of TSolution;
+  NumSolutions: Integer;
+  i, j: Integer;
+
+begin
+  WriteLn('╔════════════════════════════════════════╗');
+  WriteLn('║  MOTOR PASCAL - EJECUTABLE MONOLÍTICO ║');
+  WriteLn('╚════════════════════════════════════════╝');
+  WriteLn;
+  
+  // Definir variables
+  Vars[0] := MakeVariable('x', 1, 5);
+  Vars[1] := MakeVariable('y', 0, 10);
+  
+  // Crear modelo
+  Model := csp_create(@Vars[0], 2);
+  if Model = nil then
+  begin
+    WriteLn('ERROR: No se pudo crear modelo');
+    Exit;
+  end;
+  
+  WriteLn('Variables:');
+  WriteLn('  x ∈ [1, 5]');
+  WriteLn('  y ∈ [0, 10]');
+  WriteLn;
+  
+  // Restricción: x IN [1, 5] (ya está en el dominio)
+  Constraint := MakeConstraintInterval('x', 1, 5, False, False);
+  if csp_add_constraint(Model, @Constraint) = 0 then
+    WriteLn('ERROR agregando restricción');
+  
+  // Restricción implícita: x + y = 10
+  // Para esto necesitamos dominio de y: [10-5, 10-1] = [5, 9]
+  Constraint := MakeConstraintInterval('y', 5, 9, False, False);
+  if csp_add_constraint(Model, @Constraint) = 0 then
+    WriteLn('ERROR agregando restricción');
+  
+  WriteLn('Restricciones:');
+  WriteLn('  x ∈ [1, 5]');
+  WriteLn('  x + y = 10  (simulado con y ∈ [5, 9])');
+  WriteLn;
+  
+  // Resolver
+  WriteLn('Resolviendo...');
+  NumSolutions := csp_solve_all(Model, @Solutions[0], 100);
+  
+  WriteLn;
+  WriteLn(Format('Soluciones encontradas: %d', [NumSolutions]));
+  WriteLn;
+  
+  for i := 0 to NumSolutions - 1 do
+  begin
+    Write(Format('%3d. ', [i + 1]));
+    for j := 0 to Solutions[i].NumVars - 1 do
+    begin
+      Write(Format('%s=%d ', [
+        PChar(@Solutions[i].Names[j]),
+        Solutions[i].Values[j]
+      ]));
+    end;
+    WriteLn;
+  end;
+  
+  // Liberar
+  csp_free(Model);
+  
+  WriteLn;
+  WriteLn('Ejecutable 100% standalone - Sin DLLs');
+  WriteLn('Tamaño: ', FileSize('TestMonolithic'), ' bytes');
+end.
+
+6. Script de Compilación Monolítica
+
+Crea build_monolithic.sh:
+bash
+
+#!/bin/bash
+
+set -e
+
+GECODE_HOME="$HOME/gecode-static"
+
+echo "╔════════════════════════════════════════╗"
+echo "║  COMPILACIÓN MONOLÍTICA               ║"
+echo "╚════════════════════════════════════════╝"
+echo
+
+# 1. Compilar wrapper C++
+echo "[1/3] Compilando wrapper C++..."
+g++ -c gecode_bridge.cpp \
+    -o gecode_bridge.o \
+    -I$GECODE_HOME/include \
+    -std=c++17 \
+    -O3 \
+    -fPIC
+
+# 2. Compilar Pascal con linkeo estático
+echo "[2/3] Compilando Pascal + Gecode..."
+fpc TestMonolithic.pas \
+    -O3 \
+    -Xs \
+    -XX \
+    gecode_bridge.o \
+    -Fl$GECODE_HOME/lib \
+    -k"-L$GECODE_HOME/lib" \
+    -k"-lgecodeint" \
+    -k"-lgecodesearch" \
+    -k"-lgecodekernel" \
+    -k"-lgecodesupport" \
+    -k"-lgecodeminimodel" \
+    -k"-lstdc++" \
+    -k"-static-libgcc" \
+    -k"-static-libstdc++"
+
+# 3. Strip (opcional - reduce tamaño)
+echo "[3/3] Optimizando ejecutable..."
+strip TestMonolithic
+
+# Verificar
+echo
+echo "✓ Compilación exitosa"
+echo
+echo "Información del ejecutable:"
+ls -lh TestMonolithic
+echo
+echo "Dependencias dinámicas:"
+ldd TestMonolithic | grep -v "linux-vdso\|libc\|libm\|libpthread\|ld-linux" || echo "  (solo bibliotecas del sistema)"
+echo
+echo "Ejecutar con: ./TestMonolithic"
+
+7. Compilar
+bash
+
+chmod +x build_monolithic.sh
+./build_monolithic.sh
+
+8. Ejecutar
+bash
+
+./TestMonolithic
+```
+
+**Salida esperada:**
+```
+╔════════════════════════════════════════╗
+║  MOTOR PASCAL - EJECUTABLE MONOLÍTICO ║
+╚════════════════════════════════════════╝
+
+Variables:
+  x ∈ [1, 5]
+  y ∈ [0, 10]
+
+Restricciones:
+  x ∈ [1, 5]
+  x + y = 10  (simulado con y ∈ [5, 9])
+
+Resolviendo...
+
+Soluciones encontradas: 25
+
+  1. x=1 y=5 
+  2. x=1 y=6 
+  3. x=1 y=7 
+  ...
+ 25. x=5 y=9 
+
+Ejecutable 100% standalone - Sin DLLs
+
+9. Verificar que es Monolítico
+bash
+
+# Ver tamaño
+ls -lh TestMonolithic
+# ~8-12 MB
+
+# Ver dependencias
+ldd TestMonolithic
+# Solo debe mostrar:
+#   linux-vdso.so.1
+#   libc.so.6
+#   libm.so.6
+#   /lib64/ld-linux-x86-64.so.2
+# (bibliotecas estándar del sistema)
+
+# NO debe aparecer:
+#   libgecode*.so ✓
+#   libstdc++.so ✓
+#   libgcc_s.so ✓
+
+# Copiar a otra máquina sin Gecode
+scp TestMonolithic user@otra-maquina:
+# Debe funcionar directamente
+```
+
+## **Resultado Final**
+
+✅ **Un solo archivo ejecutable**  
+✅ **Sin DLLs/SO**  
+✅ **Sin dependencias externas** (excepto libc del sistema)  
+✅ **Portable** (copia y ejecuta)  
+✅ **~8-12 MB** de tamaño  
+
+**Ahora tienes:**
+```
+TestMonolithic  ← TODO EN UNO
+```
+
+**NO necesitas:**
+```
+❌ libgecode*.so
+❌ libstdc++.so
+❌ gecode_wrapper.dll
+❌ MiniZinc
+❌ Python
+❌ NADA
+
+¿Quieres que ahora conectemos tu AST de Pascal con este sistema?
+

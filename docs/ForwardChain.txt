@@ -1,0 +1,40 @@
+ForwardChain
+============
+
+Encadenamiento hacia adelante iterativo: aplica propagación de constraints
+en múltiples pasadas hasta alcanzar un punto fijo (ningún dominio cambia)
+o detectar una contradicción (dominio vacío).
+
+Uso
+---
+  ./ForwardChain grafo.json
+  ./ForwardChain grafo.json salida.json
+
+Entrada
+-------
+  Argumento 1: JSON de grafo (salida de JsonToGraph).
+  Argumento 2 (opcional): archivo de salida. Sin él escribe a stdout.
+
+Salida
+------
+  JSON con:
+    "status"      — "ok" | "solved" | "contradiction"
+    "iterations"  — número de pasadas realizadas
+    "steps"       — array de pasos por iteración, cada uno con:
+                    { "iteration": N, "var": "X", "before": [...], "after": [...] }
+    "variables"   — dominios finales
+
+Diferencia con FwdConsistency
+------------------------------
+  FwdConsistency aplica AC-3 una sola vez con cola.
+  ForwardChain hace múltiples pasadas completas sobre todos los constraints
+  hasta punto fijo. Más simple conceptualmente, útil para trazado.
+
+  "solved"       — todas las variables tienen exactamente un valor
+  "contradiction" — algún dominio quedó vacío (sistema inconsistente)
+  "ok"           — reducción parcial alcanzó punto fijo
+
+Posición en el pipeline
+-----------------------
+  Alternativa a FwdConsistency para sistemas con muchas iteraciones.
+  ./ForwardChain grafo.json | ./JsonSink runs.db forward

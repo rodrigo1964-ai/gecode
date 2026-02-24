@@ -1,0 +1,112 @@
+Plan: MiniGecode — Extraer fuentes mínimas de Gecode                                            │
+     │                                                                                                 │                                                                                
+     │ Contexto                                                                                        │
+     │                                                                                                 │
+     │ El bridge Pascal/Gecode (gecode_bridge.cpp) solo usa 5 de los 10 módulos de Gecode,             │
+     │ y dentro de esos 5, solo un subconjunto pequeño de funcionalidades.                             │
+     │ Actualmente se linkea dinámicamente contra los .so del sistema (16 MB en total).                │
+     │ El objetivo es crear una libgecode_mini.a estática con solo lo necesario,                       │
+     │ eliminando la dependencia del paquete del sistema y reduciendo tamaño.                          │
+     │                                                                                                 │
+     │ Lo que usa gecode_bridge.cpp                                                                    │
+     │                                                                                                 │
+     │ ┌───────────────┬───────────────┬───────────────────────┐                                       │
+     │ │    Feature    │ Módulo Gecode │        Header         │                                       │
+     │ ├───────────────┼───────────────┼───────────────────────┤                                       │
+     │ │ Space, IntVar │ kernel + int  │ gecode/int.hh         │                                       │
+     │ ├───────────────┼───────────────┼───────────────────────┤                                       │
+     │ │ rel()         │ int           │ propagador relacional │                                       │
+     │ ├───────────────┼───────────────┼───────────────────────┤                                       │
+     │ │ dom()         │ int           │ propagador dominio    │                                       │
+     │ ├───────────────┼───────────────┼───────────────────────┤                                       │
+     │ │ linear()      │ int           │ propagador lineal     │                                       │
+     │ ├───────────────┼───────────────┼───────────────────────┤                                       │
+     │ │ distinct()    │ int           │ propagador global     │                                       │
+     │ ├───────────────┼───────────────┼───────────────────────┤                                       │
+     │ │ expr(), abs() │ minimodel     │ gecode/minimodel.hh   │                                       │
+     │ ├───────────────┼───────────────┼───────────────────────┤                                       │
+     │ │ DFS           │ search        │ gecode/search.hh      │                                       │
+     │ ├───────────────┼───────────────┼───────────────────────┤                                       │
+     │ │ branch()      │ int           │ brancher entero       │                                       │
+     │ └───────────────┴───────────────┴───────────────────────┘                                       │
+     │                                                                                                 │
+     │ Tamaños actuales (.so del sistema)                                                              │
+     │                                                                                                 │
+     │ - Necesarios: kernel(108K) + int(9.3M) + search(256K) + minimodel(308K) + support(24K) = ~10 MB │
+     │ - Eliminables: driver(64K) + flatzinc(676K) + float(1.4M) + gist(308K) + set(2.9M) = ~5.4 MB    │
+     │ - Total actual: 16 MB                                                                           │
+     │                                                                                                 │
+     │ Nota: libgecodeint pesa 9.3 MB porque incluye TODOS los propagadores enteros.                   │
+     │ Con --gc-sections y linkeo estático, solo los usados quedarán en el binario.                    │
+     │                                                                                                 │
+     │ Plan de ejecución                                                                               │
+     │                                                                                                 │
+     │ Paso 1: Descargar fuentes de Gecode 6.2.0                                                       │
+     │                                                                                                 │
+     │ cd /home/rodo                                                                                   │
+     │ git clone --depth 1 --branch release/6.2.0 https://github.com/Gecode/gecode.git gecode-src      │
+     │                                                                                                 │
+     │ Si no existe el tag exacto, descargar el tarball desde GitHub releases.                         │
+     │                                                                                                 │
+     │ Paso 2: Configurar build mínimo                                                                 │
+     │                                                                                                 │
+     │ Ejecutar ./configure de Gecode desactivando todo lo innecesario:                                │
+     │                                                                                                 │
+     │ cd /home/rodo/gecode-src                                                                        │
+     │ ./configure \                                                                                   │
+     │     --prefix=/home/rodo/gecode-mini \                                                           │
+     │     --disable-flatzinc \                                                                        │
+     │     --disable-gist \                                                                            │
+     │     --disable-float \                                                                           │
+     │     --disable-set \                                                                             │
+     │     --disable-driver \                                                                          │
+     │     --enable-static \                                                                           │
+     │     --disable-shared \                                                                          │
+     │     --disable-examples \                                                                        │
+     │     CXXFLAGS="-O2 -ffunction-sections -fdata-sections -DNDEBUG"                                 │
+     │                                                                                                 │
+     │ Esto compilará solo: support + kernel + int + minimodel + search.                               │
+     │                                                                                                 │
+     │ Paso 3: Compilar e instalar                                                                     │
+     │                                                                                                 │
+     │ make -j$(nproc)                                                                                 │
+     │ make install                                                                                    │
+     │                                                                                                 │
+     │ Resultado en /home/rodo/gecode-mini/:                                                           │
+     │ - lib/libgecodekernel.a                                                                         │
+     │ - lib/libgecodeint.a                                                                            │
+     │ - lib/libgecodesearch.a                                                                         │
+     │ - lib/libgecodeminimodel.a                                                                      │
+     │ - lib/libgecodesupport.a                                                                        │
+     │ - include/gecode/ (solo los headers necesarios)                                                 │
+     │                                                                                                 │
+     │ Paso 4: Actualizar build_monolithic.sh                                                          │
+     │                                                                                                 │
+     │ Modificar /home/rodo/gecode/build_monolithic.sh para apuntar a gecode-mini:                     │
+     │                                                                                                 │
+     │ GECODE_HOME="${GECODE_HOME:-$HOME/gecode-mini}"                                                 │
+     │                                                                                                 │
+     │ El linkeo estático con --gc-sections (que ya está en el script) eliminará                       │
+     │ automáticamente las funciones no usadas de libgecodeint.a, reduciendo drásticamente             │
+     │ el tamaño final del binario.                                                                    │
+     │                                                                                                 │
+     │ Paso 5: Verificar                                                                               │
+     │                                                                                                 │
+     │ 1. Compilar TestGecodeBridge con el nuevo build:                                                │
+     │ GECODE_HOME=$HOME/gecode-mini ./build_monolithic.sh TestGecodeBridge.pas                        │
+     │ 2. Ejecutar los tests:                                                                          │
+     │ ./TestGecodeBridge                                                                              │
+     │ 3. Comparar tamaño del binario antes/después                                                    │
+     │ 4. Verificar con ldd que no haya dependencias dinámicas de Gecode                               │
+     │                                                                                                 │
+     │ Archivos a modificar                                                                            │
+     │                                                                                                 │
+     │ - /home/rodo/gecode/build_monolithic.sh — cambiar default de GECODE_HOME                        │
+     │                                                                                                 │
+     │ Resultado esperado                                                                              │
+     │                                                                                                 │
+     │ - Binario estático sin dependencia de libgecode del sistema                                     │
+     │ - Tamaño reducido significativamente (estimado ~500K-1.5M vs 147K dinámico actual que           │
+     │ depende de 10MB en .so)                                                                         │
+     │ - Headers mínimos incluidos en el proyecto                                                      │
+     │ - Totalmente portable (copiar binario a otra máquina y funciona)   
