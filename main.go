@@ -103,13 +103,7 @@ func handleSolve(w http.ResponseWriter, r *http.Request) {
 func runPipeline(inputPath string) (string, error) {
 	cmd := exec.Command("bash", pipelineScript, inputPath)
 
-	// Incluir bibliotecas GeCode locales (necesario en Render y otros entornos sin GeCode)
-	libDir := "./lib"
-	existingLD := os.Getenv("LD_LIBRARY_PATH")
-	if existingLD != "" {
-		libDir = libDir + ":" + existingLD
-	}
-	cmd.Env = append(os.Environ(), "LD_LIBRARY_PATH="+libDir)
+	cmd.Env = os.Environ()
 
 	done := make(chan error, 1)
 	var output []byte

@@ -4,6 +4,6 @@ services:
     env: go
     region: oregon
     plan: free
-    buildCommand: "go build -tags netgo -ldflags '-s -w' -o app main.go"
+    buildCommand: "apt-get install -y libgecode49t64 && go build -tags netgo -ldflags '-s -w' -o app main.go"
     startCommand: "./app"
     healthCheckPath: /health
