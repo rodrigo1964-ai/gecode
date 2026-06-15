@@ -1,9 +1,7 @@
 services:
   - type: web
     name: gecode-api
-    env: go
+    env: docker
     region: oregon
     plan: free
-    buildCommand: "apt-get install -y libgecode49t64 && go build -tags netgo -ldflags '-s -w' -o app main.go"
-    startCommand: "./app"
     healthCheckPath: /health
