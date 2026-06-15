@@ -5,24 +5,59 @@ program SyntaxChecker;
 (*
  * SyntaxChecker.pas
  *
- * Valida la consistencia sintáctica y semántica de un JSON de sistema:
+ * PROPÓSITO: Validador sintáctico/semántico de JSON CSP (Etapa 1 del pipeline)
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Primer componente del pipeline. Valida JSON de entrada ANTES de construcción
+ * de AST, evitando errores costosos en etapas posteriores.
  *
- * Reglas:
+ * DECISIÓN DE DISEÑO: ¿Por qué validación en 2 fases (Syntax → Graph)?
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Alternativas:
+ *   1. Validación única durante construcción AST → errores tardíos
+ *   2. Schema JSON (JSON Schema Draft 7) → no valida referencias cruzadas
+ *   3. ESTE: SyntaxChecker (reglas) → JsonToGraph (AST)
+ *
+ * Ventajas del diseño actual:
+ *   - Fail-fast: detecta errores antes de parsing complejo
+ *   - Reporta TODOS los errores (no solo el primero)
+ *   - Valida reglas semánticas (var usada→declarada, etc.)
+ *   - Salida JSON estructurada para tooling automático
+ *
+ * REGLAS DE VALIDACIÓN (9 categorías):
+ * ──────────────────────────────────────────────────────────────────────────────
  *   0 - Estructura básica (campos obligatorios, tipos de datos)
  *   1 - Variable declarada → usada en al menos una expresión
  *   2 - Función user-defined declarada → llamada en al menos una expresión
  *   3 - Variable en expresión → declarada en variables
  *   4 - Función en expresión → declarada en functions (o es builtin del motor)
- *   5 - Constraint string → parseable sintácticamente
+ *   5 - Constraint string → parseable sintácticamente (via PrattParser)
  *   6 - value ⊆ domain (por tipo de variable)
  *   7 - Args de llamada = inputs declarados en función (si arity fija)
  *   8 - Función estándar del motor no puede redeclararse (override no permitido)
+ *
+ * INTEGRACIÓN CON PIPELINE:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Ver pipeline.sh línea ~30:
+ *   ./bin/SyntaxChecker input.json || exit 1
+ *   ./bin/JsonToGraph input.json graph.json
  *
  * Uso:
  *   ./SyntaxChecker input.json
  *
  * Salida:
  *   JSON con "status": "ok" | "error"  y  "errors": [...]
+ *   Exit code: 0 si OK, 1 si errores
+ *
+ * DISCIPLINA: Separation of concerns
+ * ──────────────────────────────────────────────────────────────────────────────
+ * SyntaxChecker valida: estructura, referencias, tipos, domains
+ * JsonToGraph valida: AST well-formed, operadores compatibles con tipos
+ * FunctionChecker valida: archivos .o/.so existen en filesystem
+ *
+ * REFERENCIAS TÉCNICAS:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * [1] PrattParser.pas: usado para validar parseabilidad de expresiones (regla 5)
+ * [2] MiniJSON.pas: parser JSON para leer estructura de entrada
  *)
 
 uses

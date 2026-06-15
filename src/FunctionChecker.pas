@@ -5,19 +5,37 @@ program FunctionChecker;
 (*
  * FunctionChecker.pas
  *
- * Verifica que los objetos (.o / .so) de las funciones user-defined
- * declaradas en el JSON de salida de JsonToGraph existen en el path
- * de búsqueda, antes de que el motor los cargue en tiempo de ejecución.
+ * PROPÓSITO: Verificador de funciones user-defined en pipeline CSP
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Etapa 3 del pipeline (después de JsonToGraph).
+ * Valida que las funciones declaradas en el JSON tienen objetos compilados
+ * (.o o .so) en el search path ANTES de que el motor intente cargarlas.
+ *
+ * DECISIÓN DE DISEÑO: ¿Por qué validación ahead-of-time?
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Alternativas consideradas:
+ *   1. Cargar en runtime con dlopen → error tardío durante solving
+ *   2. Link estático completo → no permite user-defined functions
+ *   3. ESTE: verificar archivos antes de ejecutar solver
+ *
+ * Ventajas del diseño actual:
+ *   - Fail-fast: error antes de computación costosa
+ *   - Pipeline validable por pasos: cada etapa reporta status JSON
+ *   - Compatible con compilación incremental (make build nuevas .o)
+ *   - Reporta TODOS los objetos faltantes (no solo el primero)
+ *
+ * DISCIPLINA DE OWNERSHIP: Path resolution
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Search path (en orden de prioridad):
+ *   1. --path dir1:dir2:...  (arg explícito)
+ *   2. DEFAULT_PATH = ".:./lib:./obj:/usr/local/lib/csp"
+ *
+ * Orden de búsqueda por archivo:
+ *   1. {nombre}.so  (biblioteca dinámica para dlopen)
+ *   2. {nombre}.o   (objeto para link estático)
  *
  * Uso:
  *   ./FunctionChecker graph.json [--path dir1:dir2:...]
- *
- * Si no se especifica --path, busca en:
- *   .   ./lib   ./obj   /usr/local/lib/csp
- *
- * Para cada función declarada busca (en orden de preferencia):
- *   {nombre}.so  →  biblioteca compartida (dlopen)
- *   {nombre}.o   →  objeto reubicable (link estático/incremental)
  *
  * Salida JSON:
  *   {
@@ -32,6 +50,11 @@ program FunctionChecker;
  *   }
  *
  * Exit code: 0 si todos encontrados, 1 si alguno falta, 2 si error fatal.
+ *
+ * INTEGRACIÓN CON PIPELINE:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Ver pipeline.sh para invocación automática:
+ *   SyntaxChecker → JsonToGraph → FunctionChecker → FwdConsistency → ...
  *)
 
 uses

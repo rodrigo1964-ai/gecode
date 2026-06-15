@@ -2,19 +2,55 @@ unit PrattParser;
 
 {$mode objfpc}{$H+}
 
+(*
+  ARQUITECTURA: Parser de expresiones con Top-Down Operator Precedence (Pratt)
+  ──────────────────────────────────────────────────────────────────────────────
+  Implementa el algoritmo de Vaughan Pratt (1973) para parsing de expresiones
+  con precedencia de operadores. Usado en JsonToGraph para construir AST de
+  restricciones CSP desde strings de expresiones JSON.
+
+  DECISIÓN DE DISEÑO: ¿Por qué Pratt parser en lugar de recursive descent?
+  ──────────────────────────────────────────────────────────────────────────────
+  Alternativas evaluadas:
+    1. Recursive descent manual → requiere ~30 funciones para precedencias
+    2. Parser generator (yacc/bison) → dependencia externa + FFI complejo
+    3. Shunting-yard (Dijkstra) → solo funciona para infix, no maneja prefix
+    4. ESTE: Pratt parser (TDOP)
+
+  Ventajas del diseño Pratt:
+    - Una sola función Expr(rbp) maneja toda la precedencia
+    - Fácil agregar operadores nuevos (añadir caso en NUD/LED + binding power)
+    - Soporta prefix (NOT, unary -), infix (+ * <), postfix (si se necesita)
+    - Solo ~200 líneas de código (vs ~800 en recursive descent típico)
+    - Right-associativity trivial (ajustar rbp en LED, ver ^ power línea 80)
+
+  TABLA DE PRECEDENCIAS (binding powers):
+  ──────────────────────────────────────────────────────────────────────────────
+    OR           10
+    AND          20
+    NOT  prefix  25  (NUD, no tiene lbp)
+    IN           40
+    = != < > <=>=50
+    + -          60
+    * / %        70
+    ^ (power)    80  (right-assoc: rbp = 79 en LED)
+    unary -      90  (NUD, no tiene lbp)
+
+  INTEGRACIÓN CON PIPELINE:
+  ──────────────────────────────────────────────────────────────────────────────
+  JsonToGraph.pas usa TPrattParser.Parse para convertir cada string de
+  "expresiones" del JSON en TASTNode (árbol sintáctico abstracto).
+  El AST luego se traduce a restricciones Gecode en TestGecodeBridge.
+
+  REFERENCIAS TÉCNICAS:
+  ──────────────────────────────────────────────────────────────────────────────
+  [1] Pratt, V. "Top Down Operator Precedence" (POPL 1973)
+  [2] Crockford's TDOP essay: https://crockford.com/javascript/tdop/tdop.html
+  [3] ExpressionAST.pas: definición de TASTNode y tipos de nodos
+*)
+
 // Top-Down Operator Precedence (Vaughan Pratt, 1973).
 // Reemplaza ASTParser.pas con una sola función Expr(rbp).
-//
-// Binding powers (precedencias):
-//   OR           10
-//   AND          20
-//   NOT  prefix  25  (NUD, no tiene lbp)
-//   IN           40
-//   = != < > <=>=50
-//   + -          60
-//   * / %        70
-//   ^ (power)    80  (right-assoc: rbp = 79 en LED)
-//   unary -      90  (NUD, no tiene lbp)
 
 interface
 

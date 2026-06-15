@@ -1,11 +1,47 @@
 /*
  * minimath_interval.c
  *
+ * PROPÓSITO: Aritmética de intervalos para propagación de restricciones
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Usado en BwdConsistency.pas para proyección inversa de restricciones.
+ * Implementa operaciones [lo,hi] OP [a,b] → [result_lo, result_hi]
+ *
+ * DECISIÓN DE DISEÑO: ¿Por qué intervalos cerrados en lugar de Moore's intervals?
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Alternativas:
+ *   1. Moore's interval arithmetic (intervalos abiertos/cerrados mixtos)
+ *   2. Affine arithmetic (correlaciones entre variables)
+ *   3. ESTE: Intervalos cerrados simples [lo, hi]
+ *
+ * Ventajas del diseño actual:
+ *   - API minimalista: 14 funciones cubren todas las operaciones del motor
+ *   - Sin heap allocation (todas las operaciones devuelven struct por valor)
+ *   - Compatible con variables CSP enteras (dominios siempre cerrados)
+ *   - Convenciones conservadoras (0*∞=0, div by zero → [-∞,+∞])
+ *
+ * CONVENCIONES ARITMÉTICAS:
+ * ──────────────────────────────────────────────────────────────────────────────
+ *   - Intervalo vacío: lo > hi (detectado por mi_isempty)
+ *   - División con 0 estrictamente en denominador → [-∞, +∞]
+ *   - 0 * ∞ = 0 (convenio de aritmética de intervalos, NO IEEE-754)
+ *   - Operaciones conservadoras: siempre devuelven intervalo que contiene
+ *     el rango verdadero (pueden sobre-aproximar, nunca sub-aproximar)
+ *
+ * INTEGRACIÓN CON PIPELINE:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * BwdConsistency.pas usa estas operaciones para:
+ *   1. Leer restricción x OP y = z
+ *   2. Dado dominio de z, calcular restricción inversa sobre x e y
+ *   3. Intersecar nuevos dominios con los actuales
+ *   4. Reportar dominios reducidos en JSON de salida
+ *
+ * REFERENCIAS TÉCNICAS:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * [1] Moore, R.E. "Interval Analysis" (1966) - fundamentos teóricos
+ * [2] Hickey et al. "Interval Arithmetic: From Principles to Implementation" (2001)
+ * [3] Gecode propagation docs: MPG sec 4.2 "Domain propagation"
+ *
  * Aritmética de intervalos cerrados [lo, hi].
- * Convenciones:
- *   - Un intervalo es vacío si lo > hi.
- *   - División con 0 estrictamente en el denominador → [-∞, +∞].
- *   - 0 * ∞ = 0 (convenio de aritmética de intervalos, no IEEE-754).
  */
 
 #include "minimath.h"

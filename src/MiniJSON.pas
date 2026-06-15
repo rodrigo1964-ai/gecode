@@ -2,11 +2,50 @@ unit MiniJSON;
 
 {$mode objfpc}{$H+}
 
+(*
+  ARQUITECTURA: Parser JSON standalone sin dependencias externas
+  ──────────────────────────────────────────────────────────────────────────────
+  Parser y serializador JSON minimalista usado en todo el pipeline CSP.
+  No depende de fpjson (unit standard FPC) ni de Classes RTL.
+
+  DECISIÓN DE DISEÑO: ¿Por qué reimplementar JSON en lugar de usar fpjson?
+  ──────────────────────────────────────────────────────────────────────────────
+  Alternativas:
+    1. fpjson (unit FPC estándar) → requiere Classes, SysUtils, confl (RTL pesado)
+    2. libjansson (C library) → FFI bridge complejo
+    3. ESTE: Parser recursivo manual JSON-compliant
+
+  Ventajas del diseño actual:
+    - Sin dependencias RTL (solo MiniSys custom)
+    - Compilación rápida (no linkea todo fpjson)
+    - Control total de formato de salida (tabs, no espacios)
+    - Tamaño ejecutable reducido (fpjson añade ~200KB por tree-shaking)
+    - Facilita build monolítico (menos símbolos en link.res)
+
+  COBERTURA JSON:
+  ──────────────────────────────────────────────────────────────────────────────
+  Tipos soportados: null, boolean, number, string, array, object
+  Salida: JSON indentado con tabs (no espacios)
+  Parsing: recursive descent con backtracking mínimo
+  Validación: strict JSON (no trailing commas, no comments)
+
+  INTEGRACIÓN CON PIPELINE:
+  ──────────────────────────────────────────────────────────────────────────────
+  Usado en todos los programas del pipeline:
+    - SyntaxChecker: validar sintaxis JSON de entrada
+    - JsonToGraph: parsear JSON → construir AST
+    - FunctionChecker: leer array "functions" del JSON
+    - FwdConsistency, BwdConsistency: read/write dominios JSON
+    - JsonSink/JsonSource: serializar/deserializar desde SQLite
+
+  REFERENCIAS TÉCNICAS:
+  ──────────────────────────────────────────────────────────────────────────────
+  [1] JSON spec: RFC 8259 (IETF standard)
+  [2] MiniSys.pas: funciones básicas string/file sin RTL pesado
+*)
+
 // Parser y serializador JSON mínimo.
 // Sin fpjson, sin Classes. Solo MiniSys y System.
-//
-// Tipos soportados: null, boolean, number, string, array, object.
-// Salida: JSON indentado con tabs.
 
 interface
 

@@ -1,7 +1,45 @@
 // gecode_bridge.cpp
 //
-// Bridge C++ → Gecode para el Motor Lógico Tipado Multidominio.
-// Recibe restricciones en forma plana desde Pascal y construye el modelo CP.
+// ARQUITECTURA: Bridge FFI Pascal ↔ Gecode C++
+// ──────────────────────────────────────────────────────────────────────────────
+// Este archivo implementa el puente de interfaz de funciones extranjeras (FFI)
+// que conecta el motor lógico tipado multidominio escrito en Pascal con el
+// solver de restricciones Gecode (C++). Recibe estructuras planas POD
+// (Plain Old Data) desde Pascal y las traduce a llamadas Gecode.
+//
+// DECISIÓN DE DISEÑO: ¿Por qué Gecode?
+// ──────────────────────────────────────────────────────────────────────────────
+// 1. Solver CSP maduro con 15+ años de desarrollo (primera release 2005)
+// 2. Licencia MIT (compatible con toda la cadena de herramientas Pascal)
+// 3. Linkeo estático disponible → ejecutables standalone sin dependencias .so
+// 4. API C++ bien documentada con minimodel algebra para expresiones
+// 5. Propagadores optimizados para restricciones globales (all_different, etc.)
+// 6. Alternativas evaluadas y descartadas:
+//    - MiniZinc: requiere runtime pesado + toolchain separada (ver pasZinc)
+//    - OR-Tools: C++ header-only complejo, difícil de integrar con FPC
+//    - Choco: Java, requiere JNI bridge (overhead inaceptable)
+//
+// DISCIPLINA DE OWNERSHIP: Gestión de memoria Pascal vs C++
+// ──────────────────────────────────────────────────────────────────────────────
+// Pascal (FPC) posee:
+//   - Buffers de entrada (TCSPVar[], TCSPConstraint[])
+//   - Buffers de salida (TCSPSolution[])
+//   - Todos los strings y arrays son stack-allocated o global data
+//
+// C++ (Gecode) posee:
+//   - CSPModel* (creado con csp_create, liberado con csp_free)
+//   - Copias temporales durante búsqueda DFS (se autoliberan en destructores)
+//   - IMPORTANTE: Pascal NUNCA debe liberar punteros devueltos por csp_create
+//
+// Convención ABI: todas las funciones exportadas usan __attribute__((cdecl))
+// para compatibilidad con Free Pascal Compiler (FPC).
+//
+// REFERENCIAS TÉCNICAS:
+// ──────────────────────────────────────────────────────────────────────────────
+// [1] Gecode 6.x API: https://www.gecode.org/doc-latest/reference/
+// [2] Minimodel reference: MPG 6.2 "Modeling with integer variables"
+// [3] FPC foreign function interface: Free Pascal Programmer's Guide, cap. 7
+// [4] ABI C/Pascal: $PACKRECORDS C directive (UGecodeBridge.pas:11)
 //
 // Visibilidad: solo las funciones csp_* son símbolos públicos.
 // Todo lo demás (CSPModel, helpers) queda hidden y es eliminado por --gc-sections.

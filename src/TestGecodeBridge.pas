@@ -1,11 +1,54 @@
 { ╔════════════════════════════════════════════════════════════════╗
   ║ TestGecodeBridge.pas                                         ║
-  ║ Prueba del bridge Pascal/Gecode leyendo restricciones        ║
-  ║ desde archivos JSON.                                         ║
-  ║                                                              ║
-  ║ Uso: TestGecodeBridge [archivo.json]                         ║
-  ║      TestGecodeBridge          (corre todos los tests/)      ║
-  ╚════════════════════════════════════════════════════════════════╝ }
+  ║ Etapa 6 del pipeline CSP: Resolución completa con Gecode     ║
+  ╚════════════════════════════════════════════════════════════════╝
+
+  PROPÓSITO: Resolver CSP completo usando el bridge FFI a Gecode
+  ──────────────────────────────────────────────────────────────────────────────
+  Este programa lee el JSON procesado por las etapas previas del pipeline
+  (SyntaxChecker → JsonToGraph → FunctionChecker → FwdConsistency →
+   BwdConsistency) y lo traduce a llamadas del solver Gecode.
+
+  DECISIÓN DE DISEÑO: ¿Por qué UCSPJson en lugar de parser directo?
+  ──────────────────────────────────────────────────────────────────────────────
+  Alternativas:
+    1. Parsear JSON raw y construir model inline
+    2. ESTE: unit UCSPJson traduce JSON → TCSPData (records FFI-compatible)
+
+  Ventajas de UCSPJson:
+    - Separa parsing de resolución (single responsibility)
+    - TCSPData es reutilizable desde otros programas Pascal
+    - Permite testing unitario del parser sin invocar Gecode
+    - UCSPJson maneja conversión de tipos (boolean→IntVar[0,1], etc.)
+
+  ARQUITECTURA DEL FLUJO:
+  ──────────────────────────────────────────────────────────────────────────────
+    JSON file → LeerCSPJson → TCSPData (Pascal records)
+                            ↓
+                    csp_create(@Vars, NVars) → CSPModel* (C++ Gecode)
+                            ↓
+                    loop: csp_add_constraint(@Cons[i])
+                            ↓
+                    csp_solve_all(Model, @Sols, MaxSols) → TCSPSolution[]
+                            ↓
+                    csp_free(Model)
+                            ↓
+                    Imprimir soluciones por stdout
+
+  DISCIPLINA DE OWNERSHIP: Ver UGecodeBridge.pas
+  ──────────────────────────────────────────────────────────────────────────────
+  - TCSPData (Datos) es stack-allocated en RunJSON
+  - CSPModel* (Model) es heap C++, DEBE liberarse con csp_free
+  - Sols[] es array Pascal stack-allocated (hasta 1000 soluciones)
+
+  INTEGRACIÓN CON PIPELINE:
+  ──────────────────────────────────────────────────────────────────────────────
+  Ver pipeline.sh línea ~60:
+    ./bin/TestGecodeBridge graph.json | ./bin/VerifyWithBison graph.json
+
+  Uso:
+    TestGecodeBridge [archivo.json]   → corre un archivo
+    TestGecodeBridge                  → corre todos los tests/*.json }
 
 {$mode objfpc}{$H+}
 

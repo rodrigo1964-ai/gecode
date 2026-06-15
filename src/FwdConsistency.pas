@@ -5,17 +5,49 @@ program FwdConsistency;
 (*
  * FwdConsistency.pas
  *
- * Verificación de consistencia hacia adelante usando AC-3
- * (Arc Consistency Algorithm 3).
+ * PROPÓSITO: Propagación de restricciones forward (AC-3) - Etapa 4 del pipeline
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Implementa Arc Consistency Algorithm 3 (Mackworth 1977) para reducir dominios
+ * de variables mediante propagación forward de restricciones. Preprocesamiento
+ * antes del solver Gecode.
  *
- * Principio:
- *   Un arco (X, C) es consistente si para cada valor posible de X existe
- *   al menos un valor en los dominios de las otras variables de C que
- *   satisface C. AC-3 propaga consistencia mediante una cola de arcos,
- *   re-encola solo los arcos afectados por cada cambio.
+ * DECISIÓN DE DISEÑO: ¿Por qué AC-3 en Pascal en lugar de solo Gecode propagators?
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Alternativas:
+ *   1. Delegar toda la propagación a Gecode (sin preprocesamiento)
+ *   2. AC-4 (Mohr & Henderson 1986) - más eficiente pero complejo
+ *   3. ESTE: AC-3 standalone + luego Gecode
+ *
+ * Ventajas del diseño actual:
+ *   - Reducción de dominios antes de Gecode → search space más pequeño
+ *   - Detección temprana de inconsistencias (fail before solver)
+ *   - Traza completa de propagación (steps[]) para debugging
+ *   - AC-3 simple, implementación ~600 líneas
+ *   - Compatible con variables numeric/integer/boolean/set (no solo IntVar)
+ *
+ * ALGORITMO AC-3:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Principio: Un arco (X, C) es consistente si ∀ valor x ∈ Dom(X), ∃ valores
+ *            en Dom(Y₁), Dom(Y₂),... que satisfacen C.
+ *
+ * Pseudocódigo:
+ *   1. Inicializar cola Q con todos los arcos (X,C)
+ *   2. Mientras Q no vacía:
+ *      a. Sacar arco (X,C) de Q
+ *      b. Si Revise(X,C) reduce Dom(X):
+ *         - Si Dom(X) = ∅ → INCONSISTENT
+ *         - Sino: re-encolar arcos (Y,C') donde Y≠X y X aparece en C'
+ *   3. Si Q vacía → ARC_CONSISTENT
+ *
+ * INTEGRACIÓN CON PIPELINE:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Ver pipeline.sh línea ~45:
+ *   ./bin/FwdConsistency graph.json fwd.json
+ *   ./bin/BwdConsistency fwd.json bwd.json
+ *   ./bin/TestGecodeBridge bwd.json
  *
  * Entrada : JSON de grafo (salida de JsonToGraph)
- * Salida  : JSON con status, operaciones de cola, reglas disparadas y dominios
+ * Salida  : JSON con dominios reducidos + traza de propagación
  *
  * {
  *   "status":        "arc_consistent" | "inconsistent" | "timeout",
@@ -37,6 +69,12 @@ program FwdConsistency;
  *
  * Uso:
  *   ./FwdConsistency graph.json [output.json]
+ *
+ * REFERENCIAS TÉCNICAS:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * [1] Mackworth, A. "Consistency in Networks of Relations" AIJ 8(1):99-118 (1977)
+ * [2] Bessière, C. "Constraint Propagation" in Handbook of CP (2006)
+ * [3] Gecode MPG sec 4.2: comparación con Gecode built-in propagation
  *)
 
 uses

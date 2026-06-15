@@ -1,69 +1,22 @@
-# Directorios de compilación
-bin/
-obj/
-build/
-dist/
+# Go
+app
+server
 
-# Archivos temporales
-*.bak
-*~
-*.swp
-*.swo
-.#*
-\#*#
+# Pascal intermedios
+obj/*.o
+obj/*.ppu
+obj/*.res
+obj/ppas.sh
 
-# Sistema operativo
-.DS_Store
-Thumbs.db
-desktop.ini
+# Temporales
+*.tmp
+link*.res
+bin/link*.res
+
+# Logs
+*.log
 
 # IDEs
 .vscode/
 .idea/
-*.sublime-*
-.project
-.classpath
-.settings/
-
-# Pascal/FreePascal
-*.o
-*.ppu
-*.a
-*.so
-*.dll
-*.exe
-lib/
-backup/
-*.compiled
-*.or
-
-# C/C++
-*.o
-*.a
-*.so
-*.out
-*.exe
-*.dll
-*.dylib
-core
-.depend
-*.dSYM/
-
-# Bison/Flex generados
-*.tab.c
-*.tab.h
-*.yy.c
-lex.yy.c
-*.output
-
-# Logs
-*.log
-logs/
-
-# Documentación generada
-docs/pdf/
-
-# Archivos de configuración local
-*.local
-.env
-config.local.*
+*~

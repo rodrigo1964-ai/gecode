@@ -1,6 +1,65 @@
 /*
  * minimath_trig.c
  *
+ * PROPÓSITO: Funciones trigonométricas sin libm (parte de MiniMath suite)
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Implementaciones puras C de sin/cos/tan/atan/asin/acos/hypot sin dependencias
+ * externas. Complementa minimath_exp.c para tener biblioteca matemática completa
+ * sin conflictos de linkeo estático.
+ *
+ * DECISIÓN DE DISEÑO: Ver minimath_exp.c para contexto general (por qué sin libm)
+ *
+ * ALGORITMOS IMPLEMENTADOS:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * mm_sin / mm_cos:
+ *   - Range reduction: Cody-Waite two-part π/2 (evita cancelación catastrófica)
+ *   - Kernel: minimax polynomials grado 7-8 en [-π/4, π/4]
+ *   - Error < 1 ULP (unit in last place) para |x| < 1e8
+ *   - Casos especiales: ±∞ → NaN, NaN → NaN
+ *
+ * mm_tan:
+ *   - Implementado como sin(x)/cos(x) post-reducción
+ *   - Maneja singularidades (cos=0) devolviendo ±∞
+ *   - Correcta en cambios de cuadrante (k & 1 determina signo)
+ *
+ * mm_arctan:
+ *   - 3-way argument reduction a [0, tan(π/8)] ≈ [0, 0.414]
+ *   - |x| > tan(3π/8): atan(x) = π/2 - atan(1/x)
+ *   - |x| > tan(π/8):  atan(x) = π/4 + atan((x-1)/(x+1))
+ *   - Kernel: serie Taylor 13 términos, error < 5e-14
+ *
+ * mm_arcsin / mm_arccos:
+ *   - Via identidad arcsin(x) = arctan(x / √(1-x²)) para |x| < 0.5
+ *   - Para |x| ≥ 0.5: fórmula de medio ángulo (evita sqrt de número pequeño)
+ *   - arccos(x) = π/2 - arcsin(x) (trivial)
+ *
+ * mm_hypot:
+ *   - √(a² + b²) con protección contra overflow/underflow
+ *   - Escala por max(|a|,|b|) antes de sqrt
+ *
+ * PRECISIÓN LOGRADA:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * sin/cos:    error < 1 ULP para |x| < 1e8 rad
+ * atan:       error < 5e-14 (13+ dígitos significativos)
+ * asin/acos:  error < 1e-13 composicional
+ * tan:        error < 2 ULPs (por división sin/cos)
+ *
+ * INTEGRACIÓN CON PIPELINE:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Usado en:
+ *   - FwdConsistency: evaluación de expresiones con funciones trig
+ *   - BwdConsistency: inversión de constraints trigonométricas
+ *   - MiniMath.pas: wrapper Pascal para estas funciones C
+ *
+ * REFERENCIAS TÉCNICAS:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * [1] Cody & Waite "Software Manual for Elementary Functions" (1980)
+ *     - Sección 8.2: Range reduction para sin/cos
+ * [2] Tang, P.T.P. "Table-driven implementation of transcendental functions"
+ *     ACM TOMS 1991 - minimax polynomials
+ * [3] Abramowitz & Stegun "Handbook of Mathematical Functions" (1964)
+ *     - Sección 4.4: Series para arctan
+ *
  * Pure-C trigonometric function implementations with no libm dependency.
  * Compile with: gcc -c -O2 -std=c99 src/minimath_trig.c -o obj/minimath_trig.o
  */

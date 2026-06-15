@@ -5,24 +5,49 @@ program BwdConsistency;
 (*
  * BwdConsistency.pas
  *
- * Verificación de consistencia hacia atrás: proyección inversa a través
- * del árbol de expresiones (backward arc consistency / HC4-revise).
+ * PROPÓSITO: Propagación backward via aritmética de intervalos - Etapa 5 pipeline
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Implementa HC4-revise (Benhamou et al. 1999) para proyección inversa de
+ * restricciones. Complementa FwdConsistency propagando desde variables "efecto"
+ * hacia variables "causa" usando reglas de inversión algebraica.
  *
- * Principio:
- *   Para la constraint V = f(W), dado que V ∈ [a,b]:
- *     → Invertir f: W ∈ f⁻¹([a,b])
- *   Esto propaga información desde las variables "efecto" hacia las variables
- *   "causa", complementando la consistencia hacia adelante.
+ * DECISIÓN DE DISEÑO: ¿Por qué backward propagation en Pascal + forward en Gecode?
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Alternativas:
+ *   1. Solo AC-3 forward (sin backward) → pierde información de restricciones
+ *   2. Box consistency (HC4 completo) → costoso, requiere fixpoint iterativo
+ *   3. ESTE: AC-3 forward + HC4-revise backward (una pasada cada uno)
  *
- *   Reglas de inversión:
- *     A + B = T  →  A = T − B,  B = T − A
- *     A − B = T  →  A = T + B,  B = A − T
- *     A * B = T  →  A = T / B,  B = T / A
- *     A / B = T  →  A = T * B,  B = A / T
- *     −A    = T  →  A = −T
+ * Ventajas del diseño actual:
+ *   - Backward detecta inconsistencias que AC-3 forward no ve
+ *   - Usa aritmética de intervalos (minimath_interval.c) → precisa
+ *   - Una pasada suficiente si FwdConsistency ya estabilizó dominios
+ *   - Gecode luego hace propagación completa (no necesitamos fixpoint aquí)
  *
- * Entrada : JSON de grafo (salida de JsonToGraph)
- * Salida  : JSON con status, operaciones de cola, reglas disparadas y dominios
+ * ALGORITMO HC4-REVISE (simplificado):
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Principio: Para constraint V = f(W), dado V ∈ [a,b]:
+ *   1. Evaluar f forward con dominios actuales → T_eval
+ *   2. Intersecar T_eval con dominio de V → T_new
+ *   3. Invertir f: calcular f⁻¹(T_new) para cada W
+ *   4. Estrechar dominios de W con la intersección
+ *
+ * Reglas de inversión (operadores aritméticos):
+ *   A + B = T  →  A ∈ T − B,  B ∈ T − A
+ *   A − B = T  →  A ∈ T + B,  B ∈ A − T
+ *   A * B = T  →  A ∈ T / B,  B ∈ T / A
+ *   A / B = T  →  A ∈ T * B,  B ∈ A / T
+ *   −A    = T  →  A ∈ −T
+ *
+ * INTEGRACIÓN CON PIPELINE:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Ver pipeline.sh línea ~50:
+ *   ./bin/FwdConsistency graph.json fwd.json
+ *   ./bin/BwdConsistency fwd.json bwd.json    ← ESTA ETAPA
+ *   ./bin/TestGecodeBridge bwd.json
+ *
+ * Entrada : JSON con dominios post-FwdConsistency
+ * Salida  : JSON con dominios más estrechos + traza backward
  *
  * {
  *   "status":        "arc_consistent" | "inconsistent",
@@ -44,6 +69,12 @@ program BwdConsistency;
  *
  * Uso:
  *   ./BwdConsistency graph.json [output.json]
+ *
+ * REFERENCIAS TÉCNICAS:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * [1] Benhamou et al. "Revising Hull and Box Consistency" ICLP 1999
+ * [2] minimath_interval.c: implementación aritmética de intervalos
+ * [3] Granvilliers & Benhamou "Algorithm 852: RealPaver" ACM TOMS 2006
  *)
 
 uses

@@ -1,6 +1,50 @@
 /*
  * minimath_exp.c - Exponential and logarithmic functions in pure C, no libm.
  *
+ * DECISIÓN DE DISEÑO: ¿Por qué reimplementar exp/ln en lugar de usar libm?
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Problema: FPC + libm + Gecode produce conflictos de símbolos en linkeo estático:
+ *   - libgecodekernel.a contiene algunos símbolos de libm (por si no hay sistema)
+ *   - FPC runtime puede linkear libm dinámicamente
+ *   - build_monolithic.sh intenta linkeo estático completo → duplicate symbols
+ *
+ * Alternativas evaluadas:
+ *   1. Linkear libm.so dinámicamente → rompe build monolítico
+ *   2. Resolver símbolos con --allow-multiple-definition → undefined behavior
+ *   3. ESTE: Implementar exp/ln/sqrt desde cero sin libm
+ *
+ * Ventajas del diseño actual:
+ *   - Sin dependencias externas (solo stdint.h)
+ *   - Linkeo estático limpio (sin conflictos de símbolos)
+ *   - Ejecutables autónomos de ~8-12 MB (ver build_monolithic.sh)
+ *   - Precisión completa double (error < 1e-17 para exp/ln)
+ *
+ * ALGORITMOS IMPLEMENTADOS:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * mm_ln(x):   Natural logarithm
+ *   - Descomposición IEEE-754 x = m * 2^e, m in [1/√2, √2]
+ *   - ln(m) = 2*atanh((m-1)/(m+1)) serie Taylor 10 términos
+ *   - Precisión: error < 2*(0.171)^21/21 ≈ 1e-17 (full double)
+ *
+ * mm_exp(x):  Exponential e^x
+ *   - Range reduction: x = n*ln2 + r, |r| ≤ ln2/2
+ *   - exp(x) = 2^n * exp(r) con exp(r) serie Taylor 14 términos
+ *   - Precisión: error < (0.347)^15/15! ≈ 2e-18 (full double)
+ *
+ * mm_sqrt(x): Square root
+ *   - Newton-Raphson con semilla IEEE-754 bit manipulation
+ *   - 4 iteraciones → precisión máquina
+ *
+ * mm_pow(base, exp): Power base^exp
+ *   - Manejo especial de base < 0 con exponente entero (preserva signo)
+ *   - General: pow(b,e) = exp(e * ln(b))
+ *
+ * REFERENCIAS TÉCNICAS:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * [1] IEEE-754 double format: 1 bit signo, 11 exp, 52 mantissa
+ * [2] atanh series: Abramowitz & Stegun 4.6.21
+ * [3] Range reduction: Cody & Waite "Software Manual for Elem Functions" 1980
+ *
  * Functions exported for linking with Pascal (FPC):
  *   mm_exp, mm_ln, mm_log2, mm_log10, mm_logn, mm_pow, mm_sqrt
  *

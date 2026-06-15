@@ -2,10 +2,47 @@
   ║ UGecodeBridge.pas                                            ║
   ║ Bridge Pascal → Gecode (linkeo monolítico estático)          ║
   ║ Autor: Motor Lógico Tipado Multidominio                      ║
-  ║                                                              ║
-  ║ Uso: compilar junto a gecode_bridge.o y libgecode*.a         ║
-  ║ Ver: build_monolithic.sh                                     ║
-  ╚════════════════════════════════════════════════════════════════╝ }
+  ╚════════════════════════════════════════════════════════════════╝
+
+  ARQUITECTURA: Lado Pascal del bridge FFI
+  ──────────────────────────────────────────────────────────────────────────────
+  Este unit declara tipos Pascal espejo de los structs C++ definidos en
+  gecode_bridge.cpp y expone las funciones csp_* como external cdecl.
+
+  DECISIÓN DE DISEÑO: Records POD vs clases Pascal
+  ──────────────────────────────────────────────────────────────────────────────
+  - TCSPVar, TCSPConstraint, TCSPSolution son RECORDS (no classes)
+  - Layout de memoria compatible-C mediante {$PACKRECORDS C}
+  - Arrays de tamaño fijo (no dynamic arrays → evita descriptores RTL)
+  - Strings embebidos como char[64] terminados en NULL
+  - Esto garantiza que Pascal pueda pasar punteros sin marshalling
+
+  DISCIPLINA DE OWNERSHIP: ¿Quién libera qué?
+  ──────────────────────────────────────────────────────────────────────────────
+  Pascal (lado cliente) posee:
+    - Todas las variables TCSPVar en stack o var global
+    - Todas las restricciones TCSPConstraint[] en stack
+    - Todas las soluciones TCSPSolution[] en stack
+    → NUNCA liberar con csp_free, solo usarlo con puntero de csp_create
+
+  C++ (gecode_bridge.o) posee:
+    - CSPModel* devuelto por csp_create → DEBE liberarse con csp_free
+    - Copias temporales durante DFS search (autoliberadas)
+
+  PATRÓN DE USO SEGURO:
+    1. Model := csp_create(@Vars[0], N);     // C++ new CSPModel
+    2. csp_add_constraint(Model, @C);        // múltiples llamadas OK
+    3. N := csp_solve_all(Model, @Sols, M);  // Pascal posee array Sols
+    4. csp_free(Model);                      // OBLIGATORIO
+
+  REFERENCIAS TÉCNICAS:
+  ──────────────────────────────────────────────────────────────────────────────
+  [1] FPC C interop: https://www.freepascal.org/docs-html/prog/progch7.html
+  [2] $PACKRECORDS C: alineación igual que gcc -std=c++17
+  [3] $L directive: linkea .o en tiempo de compilación (static linking)
+
+  Uso: compilar junto a gecode_bridge.o y libgecode*.a
+  Ver: build_monolithic.sh para estrategia de linkeo estático }
 
 {$mode objfpc}{$H+}
 {$PACKRECORDS C}   { layout de records igual al compilador C/C++ }

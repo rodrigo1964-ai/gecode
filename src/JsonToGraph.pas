@@ -5,10 +5,26 @@ program JsonToGraph;
 (*
  * JsonToGraph.pas
  *
- * Convierte el JSON de sistema al grafo de restricciones (hipérgrado CSP):
+ * PROPÓSITO: Construcción del hipergrafo CSP (Etapa 2 del pipeline)
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Convierte JSON validado (salida de SyntaxChecker) en un grafo de restricciones
+ * con AST completo para cada constraint. Usado por todas las etapas posteriores.
  *
- *   { "variables": [...], "expressions": [...], "functions": [...] }
- *   →
+ * DECISIÓN DE DISEÑO: ¿Por qué hipergrafo en lugar de grafo bipartito simple?
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Alternativas:
+ *   1. Grafo bipartito Variables ↔ Constraints (solo aristas)
+ *   2. Lista plana de constraints (sin estructura de adyacencia)
+ *   3. ESTE: Hipergrafo con AST embebido + índice de adyacencia
+ *
+ * Ventajas del diseño actual:
+ *   - Propagación eficiente: adjacency[var_id] → constraints que tocan var
+ *   - AST embebido: cada constraint lleva su árbol completo (nodes[])
+ *   - Nodos compartidos: si X aparece en 3 constraints, mismo var_id en las 3
+ *   - Índice inverso: facilita algoritmos AC-3 (forward/backward consistency)
+ *
+ * FORMATO DE SALIDA (graph.json):
+ * ──────────────────────────────────────────────────────────────────────────────
  *   {
  *     "variables":   [{ id, name, type, domain, value }],
  *     "functions":   [{ id, name, inputs, outputs }],
@@ -16,12 +32,37 @@ program JsonToGraph;
  *     "adjacency":   [{ var_id, constraint_ids:[cid] }]
  *   }
  *
- * Los nodos de variable son compartidos: si X aparece en tres constraints,
- * el mismo var_id 0 aparece en var_refs de las tres.
- * La sección adjacency es el índice inverso para propagación CSP.
+ * Cada constraint incluye:
+ *   - var_refs: IDs de variables que aparecen en la expresión
+ *   - func_refs: IDs de funciones llamadas
+ *   - root: ID del nodo raíz del AST
+ *   - nodes: array completo del AST en formato post-order
+ *
+ * INTEGRACIÓN CON PIPELINE:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Ver pipeline.sh línea ~35:
+ *   ./bin/SyntaxChecker input.json || exit 1
+ *   ./bin/JsonToGraph input.json graph.json
+ *   ./bin/FunctionChecker graph.json --path ...
  *
  * Uso:
  *   ./JsonToGraph input.json [output.json]
+ *   (Si no se especifica output, escribe a graph.json por defecto)
+ *
+ * ARQUITECTURA INTERNA:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * 1. Leer JSON input (via MiniJSON.pas)
+ * 2. Para cada expresión: PrattParser → TASTNode
+ * 3. TASTSerializer: post-order traversal → JSON nodes array
+ * 4. Construir var_refs[], func_refs[] escaneando AST
+ * 5. Construir adjacency[] invirtiendo var→constraint mappings
+ * 6. Emitir graph.json (via MiniJSON.ToJSON)
+ *
+ * REFERENCIAS TÉCNICAS:
+ * ──────────────────────────────────────────────────────────────────────────────
+ * [1] PrattParser.pas: construcción AST desde string expresión
+ * [2] ExpressionAST.pas: tipos de nodos TASTNodeType
+ * [3] AC-3 algorithm: Mackworth "Consistency in Networks of Relations" (1977)
  *)
 
 uses
