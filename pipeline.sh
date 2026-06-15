@@ -22,9 +22,15 @@
 #   6. TestGecodeBridge — resolución CSP completa con Gecode
 #   7. VerifyWithBison  — verificación de soluciones con GNUBison (opcional)
 
-# Directorio de binarios (asume que el script está en scripts/)
-SCRIPTDIR="$(dirname "$0")"
-BINDIR="$(dirname "$SCRIPTDIR")/bin"
+# Directorio de binarios (el script está en la raíz del proyecto)
+SCRIPTDIR="$(cd "$(dirname "$0")" && pwd)"
+BINDIR="$SCRIPTDIR/bin"
+
+# Bibliotecas GeCode locales (para Render u otros entornos sin GeCode instalado)
+LIBDIR="$SCRIPTDIR/lib"
+if [ -d "$LIBDIR" ]; then
+    export LD_LIBRARY_PATH="$LIBDIR:${LD_LIBRARY_PATH:-}"
+fi
 DB=""
 TAG=""
 FC_PATH=""
