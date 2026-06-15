@@ -25,12 +25,6 @@
 # Directorio de binarios (el script está en la raíz del proyecto)
 SCRIPTDIR="$(cd "$(dirname "$0")" && pwd)"
 BINDIR="$SCRIPTDIR/bin"
-
-# Bibliotecas GeCode locales (para Render u otros entornos sin GeCode instalado)
-LIBDIR="$SCRIPTDIR/lib"
-if [ -d "$LIBDIR" ]; then
-    export LD_LIBRARY_PATH="$LIBDIR:${LD_LIBRARY_PATH:-}"
-fi
 DB=""
 TAG=""
 FC_PATH=""
