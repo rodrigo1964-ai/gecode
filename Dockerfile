@@ -18,7 +18,6 @@ RUN go build -o app main.go
 # Copiar el resto del proyecto
 COPY bin/ ./bin/
 COPY pipeline.sh ./
-COPY scripts/ ./scripts/
 
 EXPOSE 10000
 
